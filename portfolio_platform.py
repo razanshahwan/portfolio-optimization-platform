@@ -966,7 +966,11 @@ with tabs[4]:
     with gauge_left:
         render_rating_gauge("Technicals", technical_score_to_gauge(selected_signal), selected_signal)
 
-    recommendation = selected_info.get("Recommendation", np.nan)
+   selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
+selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
+recommendation = selected_info.get("Recommendation", np.nan)
+mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
+
     mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
     analyst_score, analyst_label = analyst_rating_to_gauge(recommendation, mean_rating)
     with gauge_right:
