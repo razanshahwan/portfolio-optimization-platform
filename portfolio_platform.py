@@ -944,6 +944,7 @@ with tabs[4]:
     if not load_asset_intelligence:
         st.info("Turn on 'Load dividends, analyst data, profile, and news' in the sidebar to load this section.")
     selected_asset = st.selectbox("Choose asset profile", valid_tickers)
+    selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
     st.subheader(f"Profile and Analyst View - {selected_asset}")
     profile_cols = [
         "Name",
@@ -966,11 +967,7 @@ with tabs[4]:
     with gauge_left:
         render_rating_gauge("Technicals", technical_score_to_gauge(selected_signal), selected_signal)
 
-   selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
-selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
-recommendation = selected_info.get("Recommendation", np.nan)
-mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
-
+    recommendation = selected_info.get("Recommendation", np.nan)
     mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
     analyst_score, analyst_label = analyst_rating_to_gauge(recommendation, mean_rating)
     with gauge_right:
@@ -990,7 +987,6 @@ mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
 
     st.subheader("Dividends")
     selected_dividends = dividends[dividends["Ticker"] == selected_asset] if not dividends.empty else pd.DataFrame()
-    selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
     payout_ratio = selected_info.get("Payout Ratio", np.nan)
     dividend_yield = selected_info.get("Dividend Yield", np.nan)
     latest_dividend_value = np.nan
