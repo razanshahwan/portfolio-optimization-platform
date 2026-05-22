@@ -52,7 +52,9 @@ except ModuleNotFoundError:
 
 st.set_page_config(page_title="Portfolio Optimization Platform", layout="wide")
 
-DEFAULT_TICKERS = ["SPY", "GOLD", "TLT", "IEFA", "USO", "VNQ"]
+DEFAULT_TICKERS = ["XOM", "GOLD", "JNJ", "AAPL"]
+DEFAULT_TICKER_TEXT = ", ".join(DEFAULT_TICKERS)
+OLD_DEFAULT_TICKER_TEXT = "SPY, GOLD, TLT, IEFA, USO, VNQ"
 SECTOR_TICKERS = ["SPY", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE"]
 FEATURE_COLUMNS = ["Return_1M", "Momentum_3M", "Momentum_6M", "Momentum_12M", "Volatility_3M", "Volatility_6M"]
 
@@ -746,7 +748,17 @@ st.caption("Analyze any Yahoo Finance tickers, optimize a portfolio, and compare
 
 with st.sidebar:
     st.header("Portfolio Inputs")
-    ticker_text = st.text_area("Yahoo Finance tickers", ", ".join(DEFAULT_TICKERS), height=90)
+    ticker_state_key = "portfolio_ticker_input_v2"
+    if st.session_state.get(ticker_state_key, OLD_DEFAULT_TICKER_TEXT) == OLD_DEFAULT_TICKER_TEXT:
+        st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
+    if st.button("Reset to default tickers"):
+        st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
+    ticker_text = st.text_area(
+        "Yahoo Finance tickers",
+        value=DEFAULT_TICKER_TEXT,
+        height=90,
+        key=ticker_state_key,
+    )
     tickers = list(dict.fromkeys([ticker.strip().upper() for ticker in ticker_text.replace("\n", ",").split(",") if ticker.strip()]))
     start_date = st.date_input("Start date", pd.Timestamp("2015-01-01"))
     end_date = st.date_input("End date", pd.Timestamp.today())
