@@ -932,8 +932,11 @@ with st.spinner(f"Downloading {data_source} price data and running the platform.
             fallback_to_yahoo,
         )
     except ModuleNotFoundError:
-        st.error("Investing.com support requires the `investpy` package. Add it to requirements.txt and redeploy the app.")
-        st.stop()
+        st.warning(
+            "Investing.com support is not installed on this deployment yet, so the app is using Yahoo Finance as a temporary fallback. "
+            "To enable Investing.com, make sure `investpy>=1.0.8` is in requirements.txt and reboot the Streamlit app."
+        )
+        prices, volume = download_yahoo_market_data(tickers, start_date, end_date)
     if prices.empty or len(prices.columns) < 2:
         st.error(f"Not enough valid price data was returned from {data_source}. Check the symbols, country/market, and date range.")
         st.stop()
