@@ -9,11 +9,6 @@ from scipy.optimize import minimize
 warnings.filterwarnings("ignore")
 
 try:
-    import investpy
-except ModuleNotFoundError:
-    investpy = None
-
-try:
     import matplotlib.pyplot as plt
     import seaborn as sns
 except ModuleNotFoundError:
@@ -62,20 +57,10 @@ DEFAULT_TICKER_TEXT = ", ".join(DEFAULT_TICKERS)
 OLD_DEFAULT_TICKER_TEXT = "SPY, GOLD, TLT, IEFA, USO, VNQ"
 SECTOR_TICKERS = ["SPY", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE"]
 FEATURE_COLUMNS = ["Return_1M", "Momentum_3M", "Momentum_6M", "Momentum_12M", "Volatility_3M", "Volatility_6M"]
-INVESTING_PRODUCTS = ["stocks", "etfs", "indices", "commodities", "funds"]
-
-
-def _clean_price_volume(prices, volume, tickers):
-    prices = prices.loc[:, ~prices.columns.duplicated()]
-    prices = prices.reindex(columns=tickers).dropna(how="all").ffill().dropna(axis=1)
-    if not volume.empty:
-        volume = volume.loc[:, ~volume.columns.duplicated()]
-        volume = volume.reindex(columns=prices.columns).dropna(how="all")
-    return prices, volume
 
 
 @st.cache_data(show_spinner=False)
-def download_yahoo_market_data(tickers, start_date, end_date):
+def download_market_data(tickers, start_date, end_date):
     tickers = list(dict.fromkeys(tickers))
     data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
     if data.empty:
@@ -88,68 +73,12 @@ def download_yahoo_market_data(tickers, start_date, end_date):
         prices = data[["Close"]].rename(columns={"Close": tickers[0]})
         volume = data[["Volume"]].rename(columns={"Volume": tickers[0]}) if "Volume" in data else pd.DataFrame()
 
-    return _clean_price_volume(prices, volume, tickers)
-
-
-def _retrieve_investing_history(quote, start_date, end_date):
-    from_date = pd.to_datetime(start_date).strftime("%d/%m/%Y")
-    to_date = pd.to_datetime(end_date).strftime("%d/%m/%Y")
-    return quote.retrieve_historical_data(from_date=from_date, to_date=to_date)
-
-
-@st.cache_data(show_spinner=False)
-def download_investing_market_data(tickers, start_date, end_date, country):
-    if investpy is None:
-        raise ModuleNotFoundError("investpy is not installed")
-
-    prices = pd.DataFrame()
-    volume = pd.DataFrame()
-    country_filter = [country.strip().lower()] if country and country.strip().lower() != "all" else None
-
-    for ticker in list(dict.fromkeys(tickers)):
-        try:
-            quotes = investpy.search_quotes(
-                text=ticker,
-                products=INVESTING_PRODUCTS,
-                countries=country_filter,
-                n_results=5,
-            )
-            if not quotes:
-                continue
-
-            selected_quote = None
-            for quote in quotes:
-                symbol = str(getattr(quote, "symbol", "") or getattr(quote, "tag", "")).upper()
-                if symbol == ticker.upper():
-                    selected_quote = quote
-                    break
-            if selected_quote is None:
-                selected_quote = quotes[0]
-
-            history = _retrieve_investing_history(selected_quote, start_date, end_date)
-            if history is None or history.empty or "Close" not in history.columns:
-                continue
-
-            history = history.copy()
-            history.index = pd.to_datetime(history.index)
-            prices[ticker] = pd.to_numeric(history["Close"], errors="coerce")
-            if "Volume" in history.columns:
-                volume[ticker] = pd.to_numeric(history["Volume"], errors="coerce")
-        except Exception:
-            continue
-
-    return _clean_price_volume(prices, volume, tickers)
-
-
-@st.cache_data(show_spinner=False)
-def download_market_data(tickers, start_date, end_date, data_source, investing_country, fallback_to_yahoo):
-    tickers = list(dict.fromkeys(tickers))
-    if data_source == "Investing.com":
-        prices, volume = download_investing_market_data(tickers, start_date, end_date, investing_country)
-        if (prices.empty or len(prices.columns) < 2) and fallback_to_yahoo:
-            return download_yahoo_market_data(tickers, start_date, end_date)
-        return prices, volume
-    return download_yahoo_market_data(tickers, start_date, end_date)
+    prices = prices.loc[:, ~prices.columns.duplicated()]
+    prices = prices.reindex(columns=tickers).dropna(how="all").ffill().dropna(axis=1)
+    if not volume.empty:
+        volume = volume.loc[:, ~volume.columns.duplicated()]
+        volume = volume.reindex(columns=prices.columns).dropna(how="all")
+    return prices, volume
 
 
 @st.cache_data(show_spinner=False)
@@ -859,7 +788,7 @@ def format_date(value):
 
 
 st.title("Portfolio Optimization Platform")
-st.caption("Analyze Yahoo Finance or Investing.com symbols, optimize a portfolio, and compare traditional and ML models.")
+st.caption("Analyze any Yahoo Finance tickers, optimize a portfolio, and compare traditional and ML models.")
 
 with st.sidebar:
     st.header("Portfolio Inputs")
@@ -868,22 +797,8 @@ with st.sidebar:
         st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
     if st.button("Reset to default tickers"):
         st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
-    data_source = st.selectbox("Price data source", ["Yahoo Finance", "Investing.com"], index=0)
-    investing_country = "united states"
-    fallback_to_yahoo = True
-    if data_source == "Investing.com":
-        investing_country = st.text_input(
-            "Investing.com country / market",
-            value="united states",
-            help="Examples: united states, united arab emirates, germany. Use 'all' for a broad search.",
-        )
-        fallback_to_yahoo = st.checkbox(
-            "Fallback to Yahoo Finance if Investing.com has missing data",
-            value=True,
-        )
-        st.caption("Investing.com data is loaded through an unofficial library, so symbols may need the correct market/country.")
     ticker_text = st.text_area(
-        f"{data_source} symbols",
+        "Yahoo Finance tickers",
         value=DEFAULT_TICKER_TEXT,
         height=90,
         key=ticker_state_key,
@@ -914,35 +829,21 @@ with st.sidebar:
     run = st.button("Run full analysis", type="primary")
 
 if not run:
-    st.info(f"Enter any {data_source} symbols, then click Run full analysis.")
+    st.info("Enter any Yahoo Finance tickers, then click Run full analysis.")
     st.stop()
 
 if len(tickers) < 2:
     st.error("Please enter at least two valid tickers.")
     st.stop()
 
-with st.spinner(f"Downloading {data_source} price data and running the platform..."):
-    try:
-        prices, volume = download_market_data(
-            tickers,
-            start_date,
-            end_date,
-            data_source,
-            investing_country,
-            fallback_to_yahoo,
-        )
-    except ModuleNotFoundError:
-        st.warning(
-            "Investing.com support is not installed on this deployment yet, so the app is using Yahoo Finance as a temporary fallback. "
-            "To enable Investing.com, make sure `investpy>=1.0.8` is in requirements.txt and reboot the Streamlit app."
-        )
-        prices, volume = download_yahoo_market_data(tickers, start_date, end_date)
+with st.spinner("Downloading Yahoo Finance data and running the platform..."):
+    prices, volume = download_market_data(tickers, start_date, end_date)
     if prices.empty or len(prices.columns) < 2:
-        st.error(f"Not enough valid price data was returned from {data_source}. Check the symbols, country/market, and date range.")
+        st.error("Not enough valid price data was returned. Check the ticker symbols and date range.")
         st.stop()
     missing_tickers = [ticker for ticker in tickers if ticker not in prices.columns]
     if missing_tickers:
-        st.warning(f"These symbols were not returned by {data_source}: {', '.join(missing_tickers)}")
+        st.warning(f"These symbols were not returned by Yahoo Finance: {', '.join(missing_tickers)}")
 
     valid_tickers = list(prices.columns)
     monthly_returns = prices.resample("ME").last().pct_change().dropna(how="all")
@@ -955,8 +856,6 @@ with st.spinner(f"Downloading {data_source} price data and running the platform.
         n_estimators=model_estimators,
     )
     if load_asset_intelligence:
-        if data_source == "Investing.com":
-            st.info("Price data is from Investing.com. Fundamentals, dividends, analyst data, profiles, and news are still loaded from Yahoo Finance when available.")
         fundamentals = download_fundamentals(valid_tickers)
         asset_intelligence, dividends, earnings, news = download_asset_intelligence(valid_tickers)
     else:
