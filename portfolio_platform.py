@@ -9,6 +9,11 @@ from scipy.optimize import minimize
 warnings.filterwarnings("ignore")
 
 try:
+    import investpy
+except ModuleNotFoundError:
+    investpy = None
+
+try:
     import matplotlib.pyplot as plt
     import seaborn as sns
 except ModuleNotFoundError:
@@ -57,10 +62,20 @@ DEFAULT_TICKER_TEXT = ", ".join(DEFAULT_TICKERS)
 OLD_DEFAULT_TICKER_TEXT = "SPY, GOLD, TLT, IEFA, USO, VNQ"
 SECTOR_TICKERS = ["SPY", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE"]
 FEATURE_COLUMNS = ["Return_1M", "Momentum_3M", "Momentum_6M", "Momentum_12M", "Volatility_3M", "Volatility_6M"]
+INVESTING_PRODUCTS = ["stocks", "etfs", "indices", "commodities", "funds"]
+
+
+def _clean_price_volume(prices, volume, tickers):
+    prices = prices.loc[:, ~prices.columns.duplicated()]
+    prices = prices.reindex(columns=tickers).dropna(how="all").ffill().dropna(axis=1)
+    if not volume.empty:
+        volume = volume.loc[:, ~volume.columns.duplicated()]
+        volume = volume.reindex(columns=prices.columns).dropna(how="all")
+    return prices, volume
 
 
 @st.cache_data(show_spinner=False)
-def download_market_data(tickers, start_date, end_date):
+def download_yahoo_market_data(tickers, start_date, end_date):
     tickers = list(dict.fromkeys(tickers))
     data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
     if data.empty:
@@ -73,12 +88,68 @@ def download_market_data(tickers, start_date, end_date):
         prices = data[["Close"]].rename(columns={"Close": tickers[0]})
         volume = data[["Volume"]].rename(columns={"Volume": tickers[0]}) if "Volume" in data else pd.DataFrame()
 
-    prices = prices.loc[:, ~prices.columns.duplicated()]
-    prices = prices.reindex(columns=tickers).dropna(how="all").ffill().dropna(axis=1)
-    if not volume.empty:
-        volume = volume.loc[:, ~volume.columns.duplicated()]
-        volume = volume.reindex(columns=prices.columns).dropna(how="all")
-    return prices, volume
+    return _clean_price_volume(prices, volume, tickers)
+
+
+def _retrieve_investing_history(quote, start_date, end_date):
+    from_date = pd.to_datetime(start_date).strftime("%d/%m/%Y")
+    to_date = pd.to_datetime(end_date).strftime("%d/%m/%Y")
+    return quote.retrieve_historical_data(from_date=from_date, to_date=to_date)
+
+
+@st.cache_data(show_spinner=False)
+def download_investing_market_data(tickers, start_date, end_date, country):
+    if investpy is None:
+        raise ModuleNotFoundError("investpy is not installed")
+
+    prices = pd.DataFrame()
+    volume = pd.DataFrame()
+    country_filter = [country.strip().lower()] if country and country.strip().lower() != "all" else None
+
+    for ticker in list(dict.fromkeys(tickers)):
+        try:
+            quotes = investpy.search_quotes(
+                text=ticker,
+                products=INVESTING_PRODUCTS,
+                countries=country_filter,
+                n_results=5,
+            )
+            if not quotes:
+                continue
+
+            selected_quote = None
+            for quote in quotes:
+                symbol = str(getattr(quote, "symbol", "") or getattr(quote, "tag", "")).upper()
+                if symbol == ticker.upper():
+                    selected_quote = quote
+                    break
+            if selected_quote is None:
+                selected_quote = quotes[0]
+
+            history = _retrieve_investing_history(selected_quote, start_date, end_date)
+            if history is None or history.empty or "Close" not in history.columns:
+                continue
+
+            history = history.copy()
+            history.index = pd.to_datetime(history.index)
+            prices[ticker] = pd.to_numeric(history["Close"], errors="coerce")
+            if "Volume" in history.columns:
+                volume[ticker] = pd.to_numeric(history["Volume"], errors="coerce")
+        except Exception:
+            continue
+
+    return _clean_price_volume(prices, volume, tickers)
+
+
+@st.cache_data(show_spinner=False)
+def download_market_data(tickers, start_date, end_date, data_source, investing_country, fallback_to_yahoo):
+    tickers = list(dict.fromkeys(tickers))
+    if data_source == "Investing.com":
+        prices, volume = download_investing_market_data(tickers, start_date, end_date, investing_country)
+        if (prices.empty or len(prices.columns) < 2) and fallback_to_yahoo:
+            return download_yahoo_market_data(tickers, start_date, end_date)
+        return prices, volume
+    return download_yahoo_market_data(tickers, start_date, end_date)
 
 
 @st.cache_data(show_spinner=False)
@@ -125,16 +196,27 @@ def download_asset_intelligence(tickers):
             info = asset.info
         except Exception:
             info = {}
+        try:
+            fast = dict(asset.fast_info)
+        except Exception:
+            fast = {}
+
+        current_price = (
+            info.get("currentPrice")
+            or info.get("regularMarketPrice")
+            or fast.get("last_price")
+            or fast.get("lastPrice")
+        )
+        market_cap = info.get("marketCap") or fast.get("market_cap")
 
         rows.append(
             {
                 "Ticker": ticker,
-                "Name": info.get("shortName"),
-                "Quote Type": info.get("quoteType"),
+                "Name": info.get("shortName") or info.get("longName") or ticker,
+                "Quote Type": info.get("quoteType") or info.get("typeDisp"),
                 "Sector": info.get("sector"),
                 "Industry": info.get("industry"),
                 "Website": info.get("website"),
-                "Employees": info.get("fullTimeEmployees"),
                 "Beta": info.get("beta"),
                 "Dividend Yield": info.get("dividendYield"),
                 "Dividend Rate": info.get("dividendRate"),
@@ -142,11 +224,12 @@ def download_asset_intelligence(tickers):
                 "Ex-Dividend Date": info.get("exDividendDate"),
                 "Trailing EPS": info.get("trailingEps"),
                 "Forward EPS": info.get("forwardEps"),
+                "Price To Book": info.get("priceToBook"),
                 "Recommendation": info.get("recommendationKey"),
                 "Mean Analyst Rating": info.get("recommendationMean"),
                 "Target Mean Price": info.get("targetMeanPrice"),
-                "Current Price": info.get("currentPrice") or info.get("regularMarketPrice"),
-                "Market Cap": info.get("marketCap"),
+                "Current Price": current_price,
+                "Market Cap": market_cap,
             }
         )
 
@@ -642,7 +725,7 @@ def render_rating_gauge(title, score, label, left_label="Strong sell", right_lab
     needle_x = 0.78 * np.cos(angle)
     needle_y = 0.78 * np.sin(angle)
 
-    fig, ax = plt.subplots(figsize=(4.2, 2.8))
+    fig, ax = plt.subplots(figsize=(3.0, 2.0))
     segments = [
         (-2, -1.2, "#ef476f"),
         (-1.2, -0.35, "#c77dff"),
@@ -654,22 +737,54 @@ def render_rating_gauge(title, score, label, left_label="Strong sell", right_lab
         theta = np.linspace(180 - ((start + 2) / 4) * 180, 180 - ((end + 2) / 4) * 180, 60)
         x = np.cos(np.deg2rad(theta))
         y = np.sin(np.deg2rad(theta))
-        ax.plot(x, y, linewidth=9, color=color, solid_capstyle="butt")
+        ax.plot(x, y, linewidth=6, color=color, solid_capstyle="butt")
 
-    ax.plot([0, needle_x], [0, needle_y], color="#1f1f1f", linewidth=2)
-    ax.scatter([0], [0], s=35, color="#111111", zorder=5)
+    ax.plot([0, needle_x], [0, needle_y], color="#1f1f1f", linewidth=1.6)
+    ax.scatter([0], [0], s=22, color="#111111", zorder=5)
 
-    ax.text(-1.05, -0.02, left_label, ha="center", va="center", fontsize=9, color="#999999", fontweight="bold")
-    ax.text(1.05, -0.02, right_label, ha="center", va="center", fontsize=9, color="#999999", fontweight="bold")
-    ax.text(0, 1.12, "Neutral", ha="center", va="center", fontsize=9, color="#999999", fontweight="bold")
-    ax.text(-0.78, 0.60, "Sell", ha="center", va="center", fontsize=9, color="#aaaaaa", fontweight="bold")
-    ax.text(0.78, 0.60, "Buy", ha="center", va="center", fontsize=9, color="#aaaaaa", fontweight="bold")
-    ax.text(0, -0.38, label, ha="center", va="center", fontsize=16, fontweight="bold", color="#111111")
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=8)
+    ax.text(-1.02, -0.02, left_label, ha="center", va="center", fontsize=7, color="#999999", fontweight="bold")
+    ax.text(1.02, -0.02, right_label, ha="center", va="center", fontsize=7, color="#999999", fontweight="bold")
+    ax.text(0, 1.10, "Neutral", ha="center", va="center", fontsize=8, color="#999999", fontweight="bold")
+    ax.text(-0.73, 0.58, "Sell", ha="center", va="center", fontsize=7, color="#aaaaaa", fontweight="bold")
+    ax.text(0.73, 0.58, "Buy", ha="center", va="center", fontsize=7, color="#aaaaaa", fontweight="bold")
+    ax.text(0, -0.34, label, ha="center", va="center", fontsize=13, fontweight="bold", color="#111111")
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
     ax.set_xlim(-1.25, 1.25)
     ax.set_ylim(-0.55, 1.25)
     ax.axis("off")
     st.pyplot(fig, use_container_width=False)
+
+
+def render_signal_card(title, score, label, subtitle=""):
+    if pd.isna(score):
+        marker = 50
+    else:
+        marker = ((max(-2, min(float(score), 2)) + 2) / 4) * 100
+    safe_subtitle = subtitle or ""
+    st.markdown(
+        f"""
+        <div style="border:1px solid #e6e8ee;border-radius:14px;padding:18px 18px 14px 18px;margin-bottom:10px;">
+          <div style="font-size:15px;color:#666;margin-bottom:8px;">{title}</div>
+          <div style="font-size:30px;font-weight:700;margin-bottom:12px;">{label}</div>
+          <div style="height:12px;border-radius:999px;background:linear-gradient(90deg,#ef476f 0%,#f4a261 25%,#dddddd 50%,#7bd88f 75%,#2bbbad 100%);position:relative;">
+            <div style="position:absolute;left:calc({marker:.1f}% - 7px);top:-5px;width:18px;height:18px;border-radius:50%;background:#111;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.25);"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-top:7px;">
+            <span>Strong sell</span><span>Neutral</span><span>Strong buy</span>
+          </div>
+          <div style="font-size:13px;color:#777;margin-top:10px;">{safe_subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def display_value(value, formatter=None):
+    if pd.isna(value) or value is None:
+        return "Not available"
+    if formatter:
+        return formatter(value)
+    return value
 
 
 def technical_score_to_gauge(signal):
@@ -744,7 +859,7 @@ def format_date(value):
 
 
 st.title("Portfolio Optimization Platform")
-st.caption("Analyze any Yahoo Finance tickers, optimize a portfolio, and compare traditional and ML models.")
+st.caption("Analyze Yahoo Finance or Investing.com symbols, optimize a portfolio, and compare traditional and ML models.")
 
 with st.sidebar:
     st.header("Portfolio Inputs")
@@ -753,8 +868,22 @@ with st.sidebar:
         st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
     if st.button("Reset to default tickers"):
         st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
+    data_source = st.selectbox("Price data source", ["Yahoo Finance", "Investing.com"], index=0)
+    investing_country = "united states"
+    fallback_to_yahoo = True
+    if data_source == "Investing.com":
+        investing_country = st.text_input(
+            "Investing.com country / market",
+            value="united states",
+            help="Examples: united states, united arab emirates, germany. Use 'all' for a broad search.",
+        )
+        fallback_to_yahoo = st.checkbox(
+            "Fallback to Yahoo Finance if Investing.com has missing data",
+            value=True,
+        )
+        st.caption("Investing.com data is loaded through an unofficial library, so symbols may need the correct market/country.")
     ticker_text = st.text_area(
-        "Yahoo Finance tickers",
+        f"{data_source} symbols",
         value=DEFAULT_TICKER_TEXT,
         height=90,
         key=ticker_state_key,
@@ -770,6 +899,7 @@ with st.sidebar:
     include_ml_portfolios = st.checkbox("Run ML portfolio strategies", value=speed_mode != "Fast")
     load_asset_intelligence = st.checkbox("Load dividends, analyst data, profile, and news", value=False)
     run_sector_comparison = st.checkbox("Run US sector comparison", value=False)
+    run_forecasting = st.checkbox("Run forecasting model", value=False)
     run_ml_diagnostics = st.checkbox("Run ROC/confusion/feature diagnostics", value=False)
     run_deep_learning = st.checkbox("Run deep learning model", value=False)
     estimator_map = {"Fast": 60, "Balanced": 120, "Full": 250}
@@ -784,18 +914,32 @@ with st.sidebar:
     run = st.button("Run full analysis", type="primary")
 
 if not run:
-    st.info("Enter any Yahoo Finance tickers, then click Run full analysis.")
+    st.info(f"Enter any {data_source} symbols, then click Run full analysis.")
     st.stop()
 
 if len(tickers) < 2:
     st.error("Please enter at least two valid tickers.")
     st.stop()
 
-with st.spinner("Downloading Yahoo Finance data and running the platform..."):
-    prices, volume = download_market_data(tickers, start_date, end_date)
-    if prices.empty or len(prices.columns) < 2:
-        st.error("Not enough valid price data was returned. Check the ticker symbols and date range.")
+with st.spinner(f"Downloading {data_source} price data and running the platform..."):
+    try:
+        prices, volume = download_market_data(
+            tickers,
+            start_date,
+            end_date,
+            data_source,
+            investing_country,
+            fallback_to_yahoo,
+        )
+    except ModuleNotFoundError:
+        st.error("Investing.com support requires the `investpy` package. Add it to requirements.txt and redeploy the app.")
         st.stop()
+    if prices.empty or len(prices.columns) < 2:
+        st.error(f"Not enough valid price data was returned from {data_source}. Check the symbols, country/market, and date range.")
+        st.stop()
+    missing_tickers = [ticker for ticker in tickers if ticker not in prices.columns]
+    if missing_tickers:
+        st.warning(f"These symbols were not returned by {data_source}: {', '.join(missing_tickers)}")
 
     valid_tickers = list(prices.columns)
     monthly_returns = prices.resample("ME").last().pct_change().dropna(how="all")
@@ -808,6 +952,8 @@ with st.spinner("Downloading Yahoo Finance data and running the platform..."):
         n_estimators=model_estimators,
     )
     if load_asset_intelligence:
+        if data_source == "Investing.com":
+            st.info("Price data is from Investing.com. Fundamentals, dividends, analyst data, profiles, and news are still loaded from Yahoo Finance when available.")
         fundamentals = download_fundamentals(valid_tickers)
         asset_intelligence, dividends, earnings, news = download_asset_intelligence(valid_tickers)
     else:
@@ -827,12 +973,16 @@ metrics = strategy_returns.apply(performance_metrics).T.sort_values("Sharpe Rati
 latest_date = strategy_weights["Date"].max()
 latest_weights = strategy_weights[strategy_weights["Date"] == latest_date].pivot(index="Ticker", columns="Strategy", values="Weight").fillna(0)
 classification_output = run_classification_models(features) if run_ml_diagnostics else None
-forecasted_returns, forecasted_weights = forecast_next_returns(
-    monthly_returns,
-    forecast_model,
-    max_weight,
-    n_estimators=model_estimators,
-)
+if run_forecasting:
+    forecasted_returns, forecasted_weights = forecast_next_returns(
+        monthly_returns,
+        forecast_model,
+        max_weight,
+        n_estimators=model_estimators,
+    )
+else:
+    forecasted_returns = pd.Series(dtype=float)
+    forecasted_weights = pd.Series(dtype=float)
 forecasted_portfolio_return = np.nan
 forecasted_value_path = pd.Series(dtype=float)
 if not forecasted_returns.empty and not forecasted_weights.empty:
@@ -958,32 +1108,69 @@ with tabs[4]:
     selected_asset = st.selectbox("Choose asset profile", valid_tickers)
     selected_info = asset_intelligence.loc[selected_asset] if selected_asset in asset_intelligence.index else pd.Series(dtype=float)
     st.subheader(f"Profile and Analyst View - {selected_asset}")
-    profile_cols = [
-        "Name",
-        "Quote Type",
-        "Sector",
-        "Industry",
-        "Website",
-        "Employees",
-        "Beta",
-        "Recommendation",
-        "Mean Analyst Rating",
-        "Target Mean Price",
-        "Current Price",
-    ]
-    available_profile_cols = [col for col in profile_cols if col in asset_intelligence.columns]
-    st.dataframe(asset_intelligence.loc[[selected_asset], available_profile_cols], use_container_width=True)
 
-    gauge_left, gauge_right = st.columns(2)
+    fallback_price = prices[selected_asset].dropna().iloc[-1] if selected_asset in prices.columns and not prices[selected_asset].dropna().empty else np.nan
+    if pd.isna(selected_info.get("Current Price", np.nan)):
+        selected_info["Current Price"] = fallback_price
+
+    name = display_value(selected_info.get("Name", selected_asset))
+    quote_type = display_value(selected_info.get("Quote Type", ""))
+    sector = display_value(selected_info.get("Sector", ""))
+    industry = display_value(selected_info.get("Industry", ""))
+    website = selected_info.get("Website", np.nan)
+
+    st.markdown(f"### {name}")
+    subtitle_parts = [str(part) for part in [quote_type, sector, industry] if str(part) not in ["", "Not available", "nan", "None"]]
+    if subtitle_parts:
+        st.caption(" | ".join(subtitle_parts))
+    if isinstance(website, str) and website:
+        st.markdown(f"[Company / fund website]({website})")
+
+    pcols = st.columns(5)
+    pcols[0].metric("Current Price", display_value(selected_info.get("Current Price"), lambda x: f"{float(x):,.2f}"))
+    pcols[1].metric("Beta", display_value(selected_info.get("Beta"), lambda x: f"{float(x):.2f}"))
+    pcols[2].metric("Market Cap", display_value(selected_info.get("Market Cap"), lambda x: f"{float(x):,.0f}"))
+    pcols[3].metric("Dividend Rate", display_value(selected_info.get("Dividend Rate"), lambda x: f"{float(x):.3f}"))
+    pcols[4].metric("P/B", display_value(selected_info.get("Price To Book"), lambda x: f"{float(x):.2f}"))
+
+    with st.expander("Show full profile fields"):
+        profile_cols = [
+            "Name",
+            "Quote Type",
+            "Sector",
+            "Industry",
+            "Website",
+            "Beta",
+            "Market Cap",
+            "Dividend Yield",
+            "Dividend Rate",
+            "Payout Ratio",
+            "Trailing EPS",
+            "Forward EPS",
+            "Price To Book",
+            "Recommendation",
+            "Mean Analyst Rating",
+            "Target Mean Price",
+            "Current Price",
+        ]
+        available_profile_cols = [col for col in profile_cols if col in asset_intelligence.columns]
+        profile_display = asset_intelligence.loc[[selected_asset], available_profile_cols].replace({None: "Not available"})
+        st.dataframe(profile_display, use_container_width=True)
+
+    if selected_info.get("Quote Type", "") == "ETF":
+        st.caption("This asset is an ETF, so Yahoo Finance may not provide company-style fields such as analyst rating, EPS, sector, industry, or payout ratio.")
+
+    gauge_left, gauge_right = st.columns([1, 1])
     selected_signal = technical_signals.loc[selected_asset, "Signal"] if selected_asset in technical_signals.index else "N/A"
     with gauge_left:
-        render_rating_gauge("Technicals", technical_score_to_gauge(selected_signal), selected_signal)
+        reason = technical_signals.loc[selected_asset, "Reason"] if selected_asset in technical_signals.index else ""
+        render_signal_card("Technicals", technical_score_to_gauge(selected_signal), selected_signal, reason)
 
     recommendation = selected_info.get("Recommendation", np.nan)
     mean_rating = selected_info.get("Mean Analyst Rating", np.nan)
     analyst_score, analyst_label = analyst_rating_to_gauge(recommendation, mean_rating)
     with gauge_right:
-        render_rating_gauge("Analyst rating", analyst_score, analyst_label)
+        render_signal_card("Analyst rating", analyst_score, analyst_label)
 
         target_price = selected_info.get("Target Mean Price", np.nan)
         current_price = selected_info.get("Current Price", np.nan)
@@ -1001,6 +1188,7 @@ with tabs[4]:
     selected_dividends = dividends[dividends["Ticker"] == selected_asset] if not dividends.empty else pd.DataFrame()
     payout_ratio = selected_info.get("Payout Ratio", np.nan)
     dividend_yield = selected_info.get("Dividend Yield", np.nan)
+    computed_dividend_yield = np.nan
     latest_dividend_value = np.nan
     latest_ex_date = np.nan
     last_payment_date = selected_info.get("Ex-Dividend Date", np.nan)
@@ -1013,20 +1201,33 @@ with tabs[4]:
         selected_dividends = selected_dividends.sort_values("Date")
         latest_dividend_value = selected_dividends.iloc[-1]["Dividend"]
         latest_ex_date = selected_dividends.iloc[-1]["Date"]
+        latest_price = selected_info.get("Current Price", np.nan)
+        if pd.isna(latest_price):
+            latest_price = prices[selected_asset].dropna().iloc[-1] if selected_asset in prices.columns else np.nan
+        price_last_date = prices.index.max()
+        trailing_cutoff = pd.to_datetime(price_last_date).tz_localize(None) - pd.DateOffset(years=1)
+        trailing_dividends = selected_dividends[selected_dividends["Date"] >= trailing_cutoff]["Dividend"].sum()
+        if trailing_dividends == 0 and len(selected_dividends) > 0:
+            trailing_dividends = selected_dividends.tail(min(4, len(selected_dividends)))["Dividend"].sum()
+        if not pd.isna(latest_price) and latest_price != 0:
+            computed_dividend_yield = trailing_dividends / latest_price
+        display_dividend_yield = dividend_yield if not pd.isna(dividend_yield) else computed_dividend_yield
 
         card_left, card_right = st.columns([1, 1.25])
         with card_left:
             donut_value = payout_ratio
             if pd.isna(donut_value):
-                donut_value = dividend_yield
+                donut_value = display_dividend_yield
             if not pd.isna(donut_value) and abs(float(donut_value)) <= 1:
                 donut_value = float(donut_value) * 100
             render_donut_card("Dividends", donut_value)
-            st.caption("Teal shows payout ratio when available; otherwise dividend yield.")
+            st.caption("Teal shows payout ratio when available; otherwise calculated dividend yield TTM.")
 
         with card_right:
             st.markdown("#### Dividend Snapshot")
-            st.metric("Dividend yield TTM", format_percent(dividend_yield))
+            st.metric("Dividend yield TTM", format_percent(display_dividend_yield))
+            if pd.isna(dividend_yield) and not pd.isna(computed_dividend_yield):
+                st.caption("Calculated as dividends paid over the last 12 months divided by the latest price.")
             st.metric("Payout ratio TTM", format_percent(payout_ratio))
             st.metric("Last payment", format_number(latest_dividend_value))
             st.metric("Last ex-dividend date", format_date(latest_ex_date))
@@ -1112,7 +1313,9 @@ with tabs[7]:
 with tabs[8]:
     st.subheader(f"Forecasting with {forecast_model}")
     st.write("The forecast estimates next-month returns using the latest available technical features.")
-    if forecasted_returns.empty or forecasted_weights.empty:
+    if not run_forecasting:
+        st.info("Turn on 'Run forecasting model' in the sidebar to load this section.")
+    elif forecasted_returns.empty or forecasted_weights.empty:
         st.warning("Forecasting is not available. Check that the selected ML package is installed and there is enough data.")
     else:
         forecast_table = pd.DataFrame(
