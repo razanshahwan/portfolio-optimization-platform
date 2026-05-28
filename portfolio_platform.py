@@ -6,11 +6,6 @@ import streamlit as st
 import yfinance as yf
 from scipy.optimize import minimize
 
-try:
-    import requests
-except ModuleNotFoundError:
-    requests = None
-
 warnings.filterwarnings("ignore")
 
 try:
@@ -82,76 +77,6 @@ def yahoo_raw(value):
     return value
 
 
-def has_enough_profile_data(info):
-    if not isinstance(info, dict) or not info:
-        return False
-    important_fields = ["shortName", "longName", "marketCap", "beta", "dividendYield", "quoteType"]
-    for field in important_fields:
-        value = first_available(info.get(field))
-        if not pd.isna(value):
-            return True
-    return False
-
-
-def fetch_yahoo_quote_snapshot(tickers):
-    if requests is None:
-        return {}
-    symbols = ",".join(tickers)
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": symbols}
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        response = requests.get(url, params=params, headers=headers, timeout=12)
-        response.raise_for_status()
-        results = response.json().get("quoteResponse", {}).get("result", [])
-        return {item.get("symbol"): item for item in results if item.get("symbol")}
-    except Exception:
-        return {}
-
-
-def fetch_yahoo_summary_snapshot(ticker):
-    if requests is None:
-        return {}
-    modules = "assetProfile,summaryDetail,defaultKeyStatistics,financialData,price"
-    url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        response = requests.get(url, params={"modules": modules}, headers=headers, timeout=12)
-        response.raise_for_status()
-        results = response.json().get("quoteSummary", {}).get("result", [])
-        if not results:
-            return {}
-        data = results[0]
-        profile = data.get("assetProfile", {})
-        detail = data.get("summaryDetail", {})
-        stats = data.get("defaultKeyStatistics", {})
-        financial = data.get("financialData", {})
-        price = data.get("price", {})
-        return {
-            "shortName": yahoo_raw(price.get("shortName")),
-            "longName": yahoo_raw(price.get("longName")),
-            "quoteType": yahoo_raw(price.get("quoteType")),
-            "sector": yahoo_raw(profile.get("sector")),
-            "industry": yahoo_raw(profile.get("industry")),
-            "website": yahoo_raw(profile.get("website")),
-            "beta": yahoo_raw(detail.get("beta")),
-            "marketCap": yahoo_raw(price.get("marketCap")),
-            "dividendYield": yahoo_raw(detail.get("dividendYield")),
-            "dividendRate": yahoo_raw(detail.get("dividendRate")),
-            "payoutRatio": yahoo_raw(detail.get("payoutRatio")),
-            "exDividendDate": yahoo_raw(detail.get("exDividendDate")),
-            "trailingEps": yahoo_raw(stats.get("trailingEps")),
-            "forwardEps": yahoo_raw(stats.get("forwardEps")),
-            "priceToBook": yahoo_raw(stats.get("priceToBook")),
-            "recommendationKey": yahoo_raw(financial.get("recommendationKey")),
-            "recommendationMean": yahoo_raw(financial.get("recommendationMean")),
-            "targetMeanPrice": yahoo_raw(financial.get("targetMeanPrice")),
-            "currentPrice": yahoo_raw(financial.get("currentPrice")),
-        }
-    except Exception:
-        return {}
-
-
 @st.cache_data(show_spinner=False)
 def download_market_data(tickers, start_date, end_date):
     tickers = list(dict.fromkeys(tickers))
@@ -176,7 +101,6 @@ def download_market_data(tickers, start_date, end_date):
 
 @st.cache_data(show_spinner=False)
 def download_fundamentals(tickers):
-    quote_snapshot = fetch_yahoo_quote_snapshot(tickers)
     fields = [
         "shortName",
         "quoteType",
@@ -196,38 +120,18 @@ def download_fundamentals(tickers):
     rows = []
     for ticker in tickers:
         row = {"Ticker": ticker}
-        quote = quote_snapshot.get(ticker, {})
-        summary = fetch_yahoo_summary_snapshot(ticker)
         try:
             info = yf.Ticker(ticker).info
+            row.update({field: info.get(field, np.nan) for field in fields})
         except Exception as exc:
-            info = {}
+            row.update({field: np.nan for field in fields})
             row["error"] = str(exc)
-
-        fallback_values = {
-            "shortName": first_available(info.get("shortName"), summary.get("shortName"), quote.get("shortName"), quote.get("longName")),
-            "quoteType": first_available(info.get("quoteType"), summary.get("quoteType"), quote.get("quoteType")),
-            "sector": first_available(info.get("sector"), summary.get("sector")),
-            "industry": first_available(info.get("industry"), summary.get("industry")),
-            "marketCap": first_available(info.get("marketCap"), summary.get("marketCap"), quote.get("marketCap")),
-            "trailingPE": first_available(info.get("trailingPE"), quote.get("trailingPE")),
-            "forwardPE": first_available(info.get("forwardPE"), quote.get("forwardPE")),
-            "priceToBook": first_available(info.get("priceToBook"), summary.get("priceToBook"), quote.get("priceToBook")),
-            "dividendYield": first_available(info.get("dividendYield"), summary.get("dividendYield"), quote.get("trailingAnnualDividendYield"), quote.get("dividendYield")),
-            "beta": first_available(info.get("beta"), summary.get("beta"), quote.get("beta")),
-            "profitMargins": info.get("profitMargins", np.nan),
-            "returnOnEquity": info.get("returnOnEquity", np.nan),
-            "totalRevenue": info.get("totalRevenue", np.nan),
-            "debtToEquity": info.get("debtToEquity", np.nan),
-        }
-        row.update({field: fallback_values.get(field, np.nan) for field in fields})
         rows.append(row)
     return pd.DataFrame(rows).set_index("Ticker")
 
 
 @st.cache_data(show_spinner=False)
 def download_asset_intelligence(tickers):
-    quote_snapshot = fetch_yahoo_quote_snapshot(tickers)
     rows = []
     news_rows = []
     earnings_rows = []
@@ -235,8 +139,6 @@ def download_asset_intelligence(tickers):
 
     for ticker in tickers:
         asset = yf.Ticker(ticker)
-        quote = quote_snapshot.get(ticker, {})
-        summary = fetch_yahoo_summary_snapshot(ticker)
         try:
             info = asset.info
         except Exception:
@@ -249,32 +151,30 @@ def download_asset_intelligence(tickers):
         current_price = first_available(
             info.get("currentPrice"),
             info.get("regularMarketPrice"),
-            summary.get("currentPrice"),
-            quote.get("regularMarketPrice"),
             fast.get("last_price"),
             fast.get("lastPrice"),
         )
-        market_cap = first_available(info.get("marketCap"), summary.get("marketCap"), quote.get("marketCap"), fast.get("market_cap"))
+        market_cap = first_available(info.get("marketCap"), fast.get("market_cap"))
 
         rows.append(
             {
                 "Ticker": ticker,
-                "Name": first_available(info.get("shortName"), info.get("longName"), summary.get("shortName"), summary.get("longName"), quote.get("shortName"), ticker),
-                "Quote Type": first_available(info.get("quoteType"), info.get("typeDisp"), summary.get("quoteType"), quote.get("quoteType")),
-                "Sector": first_available(info.get("sector"), summary.get("sector")),
-                "Industry": first_available(info.get("industry"), summary.get("industry")),
-                "Website": first_available(info.get("website"), summary.get("website")),
-                "Beta": first_available(info.get("beta"), summary.get("beta"), quote.get("beta")),
-                "Dividend Yield": first_available(info.get("dividendYield"), summary.get("dividendYield"), quote.get("trailingAnnualDividendYield"), quote.get("dividendYield")),
-                "Dividend Rate": first_available(info.get("dividendRate"), summary.get("dividendRate"), quote.get("trailingAnnualDividendRate"), quote.get("dividendRate")),
-                "Payout Ratio": first_available(info.get("payoutRatio"), summary.get("payoutRatio")),
-                "Ex-Dividend Date": first_available(info.get("exDividendDate"), summary.get("exDividendDate"), quote.get("exDividendDate"), quote.get("dividendDate")),
-                "Trailing EPS": first_available(info.get("trailingEps"), summary.get("trailingEps"), quote.get("epsTrailingTwelveMonths")),
-                "Forward EPS": first_available(info.get("forwardEps"), summary.get("forwardEps"), quote.get("epsForward")),
-                "Price To Book": first_available(info.get("priceToBook"), summary.get("priceToBook"), quote.get("priceToBook")),
-                "Recommendation": first_available(info.get("recommendationKey"), summary.get("recommendationKey")),
-                "Mean Analyst Rating": first_available(info.get("recommendationMean"), summary.get("recommendationMean")),
-                "Target Mean Price": first_available(info.get("targetMeanPrice"), summary.get("targetMeanPrice"), quote.get("targetMeanPrice")),
+                "Name": first_available(info.get("shortName"), info.get("longName"), ticker),
+                "Quote Type": first_available(info.get("quoteType"), info.get("typeDisp")),
+                "Sector": info.get("sector"),
+                "Industry": info.get("industry"),
+                "Website": info.get("website"),
+                "Beta": info.get("beta"),
+                "Dividend Yield": info.get("dividendYield"),
+                "Dividend Rate": info.get("dividendRate"),
+                "Payout Ratio": info.get("payoutRatio"),
+                "Ex-Dividend Date": info.get("exDividendDate"),
+                "Trailing EPS": info.get("trailingEps"),
+                "Forward EPS": info.get("forwardEps"),
+                "Price To Book": info.get("priceToBook"),
+                "Recommendation": info.get("recommendationKey"),
+                "Mean Analyst Rating": info.get("recommendationMean"),
+                "Target Mean Price": info.get("targetMeanPrice"),
                 "Current Price": current_price,
                 "Market Cap": market_cap,
             }
@@ -974,8 +874,19 @@ with st.spinner("Downloading Yahoo Finance data and running the platform..."):
         n_estimators=model_estimators,
     )
     if load_asset_intelligence:
-        fundamentals = download_fundamentals(valid_tickers)
-        asset_intelligence, dividends, earnings, news = download_asset_intelligence(valid_tickers)
+        try:
+            fundamentals = download_fundamentals(valid_tickers)
+        except Exception as exc:
+            st.warning(f"Fundamental data could not be loaded right now: {exc}")
+            fundamentals = pd.DataFrame(index=valid_tickers)
+        try:
+            asset_intelligence, dividends, earnings, news = download_asset_intelligence(valid_tickers)
+        except Exception as exc:
+            st.warning(f"Asset intelligence data could not be loaded right now: {exc}")
+            asset_intelligence = pd.DataFrame(index=valid_tickers)
+            dividends = pd.DataFrame()
+            earnings = pd.DataFrame()
+            news = pd.DataFrame()
     else:
         fundamentals = pd.DataFrame(index=valid_tickers)
         asset_intelligence = pd.DataFrame(index=valid_tickers)
