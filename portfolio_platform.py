@@ -197,14 +197,12 @@ def download_fundamentals(tickers):
     for ticker in tickers:
         row = {"Ticker": ticker}
         quote = quote_snapshot.get(ticker, {})
-        summary = {}
+        summary = fetch_yahoo_summary_snapshot(ticker)
         try:
             info = yf.Ticker(ticker).info
         except Exception as exc:
             info = {}
             row["error"] = str(exc)
-        if not has_enough_profile_data(info):
-            summary = fetch_yahoo_summary_snapshot(ticker)
 
         fallback_values = {
             "shortName": first_available(info.get("shortName"), summary.get("shortName"), quote.get("shortName"), quote.get("longName")),
@@ -216,7 +214,7 @@ def download_fundamentals(tickers):
             "forwardPE": first_available(info.get("forwardPE"), quote.get("forwardPE")),
             "priceToBook": first_available(info.get("priceToBook"), summary.get("priceToBook"), quote.get("priceToBook")),
             "dividendYield": first_available(info.get("dividendYield"), summary.get("dividendYield"), quote.get("trailingAnnualDividendYield"), quote.get("dividendYield")),
-            "beta": first_available(info.get("beta"), summary.get("beta")),
+            "beta": first_available(info.get("beta"), summary.get("beta"), quote.get("beta")),
             "profitMargins": info.get("profitMargins", np.nan),
             "returnOnEquity": info.get("returnOnEquity", np.nan),
             "totalRevenue": info.get("totalRevenue", np.nan),
@@ -238,13 +236,11 @@ def download_asset_intelligence(tickers):
     for ticker in tickers:
         asset = yf.Ticker(ticker)
         quote = quote_snapshot.get(ticker, {})
-        summary = {}
+        summary = fetch_yahoo_summary_snapshot(ticker)
         try:
             info = asset.info
         except Exception:
             info = {}
-        if not has_enough_profile_data(info):
-            summary = fetch_yahoo_summary_snapshot(ticker)
         try:
             fast = dict(asset.fast_info)
         except Exception:
@@ -268,7 +264,7 @@ def download_asset_intelligence(tickers):
                 "Sector": first_available(info.get("sector"), summary.get("sector")),
                 "Industry": first_available(info.get("industry"), summary.get("industry")),
                 "Website": first_available(info.get("website"), summary.get("website")),
-                "Beta": first_available(info.get("beta"), summary.get("beta")),
+                "Beta": first_available(info.get("beta"), summary.get("beta"), quote.get("beta")),
                 "Dividend Yield": first_available(info.get("dividendYield"), summary.get("dividendYield"), quote.get("trailingAnnualDividendYield"), quote.get("dividendYield")),
                 "Dividend Rate": first_available(info.get("dividendRate"), summary.get("dividendRate"), quote.get("trailingAnnualDividendRate"), quote.get("dividendRate")),
                 "Payout Ratio": first_available(info.get("payoutRatio"), summary.get("payoutRatio")),
@@ -1178,7 +1174,7 @@ with tabs[4]:
             "Current Price",
         ]
         available_profile_cols = [col for col in profile_cols if col in asset_intelligence.columns]
-        profile_display = asset_intelligence.loc[[selected_asset], available_profile_cols].replace({None: "Not available"})
+        profile_display = asset_intelligence.loc[[selected_asset], available_profile_cols].replace({None: np.nan}).fillna("Not available")
         st.dataframe(profile_display, use_container_width=True)
 
     if selected_info.get("Quote Type", "") == "ETF":
