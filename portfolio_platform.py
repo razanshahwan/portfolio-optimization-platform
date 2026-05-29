@@ -1215,8 +1215,21 @@ with tabs[6]:
     st.subheader("Performance Metrics")
     st.dataframe(metrics.style.format("{:.4f}"), use_container_width=True)
     st.subheader(f"Latest Portfolio Weights - {latest_date.date()}")
+
+    if plt is not None:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        latest_weights.plot(kind="bar", ax=ax)
+        ax.set_title(f"Latest Portfolio Weights - {latest_date.date()}")
+        ax.set_ylabel("Weight")
+        ax.set_xlabel("Ticker")
+        ax.legend(title="Strategy")
+        ax.grid(axis="y", alpha=0.3)
+        ax.tick_params(axis="x", rotation=45)
+        st.pyplot(fig, use_container_width=True)
+    else:
+        st.info("Install matplotlib to show the grouped portfolio weights chart.")
+
     st.dataframe(latest_weights.style.format("{:.2%}"), use_container_width=True)
-    st.bar_chart(latest_weights)
 
 with tabs[7]:
     st.subheader("Portfolio Profit / Loss")
