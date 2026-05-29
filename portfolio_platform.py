@@ -449,6 +449,7 @@ def run_classification_models(features):
         ),
         "Random Forest": RandomForestClassifier(n_estimators=300, min_samples_leaf=5, random_state=42, n_jobs=-1),
     }
+    missing_models = []
     if XGBClassifier is not None:
         models["XGBoost"] = XGBClassifier(
             n_estimators=300,
@@ -459,6 +460,8 @@ def run_classification_models(features):
             random_state=42,
             eval_metric="logloss",
         )
+    else:
+        missing_models.append("XGBoost")
 
     results = []
     probabilities = {}
@@ -487,6 +490,7 @@ def run_classification_models(features):
         "probabilities": probabilities,
         "predictions": predictions,
         "models": fitted_models,
+        "missing_models": missing_models,
     }
 
 
@@ -1287,6 +1291,9 @@ with tabs[9]:
         st.warning("Install scikit-learn to enable ML diagnostics.")
     else:
         st.write(f"Train/test split date: {classification_output['split_date'].date()}")
+        st.caption("Models included: Logistic Regression, Random Forest, and XGBoost.")
+        if classification_output.get("missing_models"):
+            st.warning("Missing model package: " + ", ".join(classification_output["missing_models"]) + ". Check requirements.txt and redeploy the app.")
         st.subheader("Model Accuracy and ROC AUC / C-Statistic")
         st.dataframe(classification_output["results"].style.format("{:.4f}"), use_container_width=True)
 
@@ -1303,14 +1310,23 @@ with tabs[9]:
             ax.legend()
             st.pyplot(fig)
 
-        selected_model = st.selectbox("Choose model for confusion matrix", list(classification_output["predictions"].keys()))
-        cm = pd.DataFrame(
-            confusion_matrix(classification_output["y_test"], classification_output["predictions"][selected_model]),
-            index=["Actual Down/Zero", "Actual Up"],
-            columns=["Predicted Down/Zero", "Predicted Up"],
-        )
-        st.dataframe(cm, use_container_width=True)
-        st.text(classification_report(classification_output["y_test"], classification_output["predictions"][selected_model]))
+        st.subheader("Confusion Matrix for Each Model")
+        for model_name, predictions in classification_output["predictions"].items():
+            st.markdown(f"#### {model_name}")
+            cm = pd.DataFrame(
+                confusion_matrix(classification_output["y_test"], predictions),
+                index=["Actual Down/Zero", "Actual Up"],
+                columns=["Predicted Down/Zero", "Predicted Up"],
+            )
+            if plt is not None and sns is not None:
+                fig, ax = plt.subplots(figsize=(4.8, 3.4))
+                sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax)
+                ax.set_title(f"{model_name} Confusion Matrix")
+                ax.set_xlabel("Predicted")
+                ax.set_ylabel("Actual")
+                st.pyplot(fig, use_container_width=False)
+            st.dataframe(cm, use_container_width=True)
+            st.text(classification_report(classification_output["y_test"], predictions))
 
         st.subheader("Feature Importance")
         importance_rows = []
