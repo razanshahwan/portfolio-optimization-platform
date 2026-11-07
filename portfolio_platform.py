@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 from market_factor_view import render_factor_dashboard
+from ui_translation import explanation, arabic_below
 
 from thesis_engine import (
     DEFAULT, GROUPS, get_prices, technical_panel,
@@ -82,13 +83,29 @@ def to_zip(tables):
 
 
 st.image("assets/portfolio_hero.svg", use_container_width=True)
+st.toggle(
+    "🌐 Translate explanations to Arabic / إظهار ترجمة الشروحات بالعربية",
+    value=False, key="show_arabic",
+    help="Show Arabic explanations directly below the English text; charts and calculations stay the same.",
+)
 st.title("Portfolio Optimization Platform")
-st.caption("Build portfolios, compare three methods, and see how market conditions relate to performance.")
-st.markdown("**1. Pick assets → 2. Choose a goal → 3. Compare portfolio methods.**")
-st.write(
+arabic_below("منصة تحسين المحافظ الاستثمارية: مقارنة الطرق الثلاث وتحليل المخاطر وظروف السوق.")
+explanation(
+    "Build portfolios, compare three methods, and see how market conditions relate to performance.",
+    "ابنِ محفظتك الاستثمارية، وقارن بين ثلاث طرق، وتعرّف إلى أداء المحافظ تحت ظروف السوق المختلفة.",
+)
+explanation(
+    "**1. Pick assets → 2. Choose a goal → 3. Compare portfolio methods.**",
+    "١. اختر الأسهم والصناديق → ٢. حدّد هدف المقارنة → ٣. قارن أداء المحافظ.",
+    kind="markdown",
+)
+explanation(
     "Enter the symbols you want to invest in. The platform shows the complete "
     "company or fund names and compares **Mean–Variance**, **Random Forest**, "
-    "and **XGBoost** using a historical monthly backtest."
+    "and **XGBoost** using a historical monthly backtest.",
+    "أدخل رموز الأسهم أو صناديق ETF التي تختارها. ستظهر الأسماء الكاملة للأصول "
+    "ومقارنة تاريخية بين Mean–Variance وRandom Forest وXGBoost.",
+    kind="write",
 )
 
 with st.sidebar:
@@ -108,7 +125,10 @@ with st.sidebar:
     if len(tickers)>25:
         st.warning("For performance, select up to 25 different assets at a time.")
     if tickers:
-        st.caption("Full names appear after pressing Enter or clicking outside the input.")
+        explanation(
+            "Full names appear after pressing Enter or clicking outside the input.",
+            "سيظهر الاسم الكامل للسهم أو الصندوق بعد الضغط على Enter أو النقر خارج خانة الإدخال.",
+        )
         st.dataframe(
             pd.DataFrame([{"Symbol":x,"Full name":full_name(x)} for x in tickers]),
             hide_index=True,use_container_width=True,
@@ -124,12 +144,31 @@ with st.sidebar:
                         max_value=last_complete_month().date())
     investment=st.number_input("Example investment (USD)",
                                min_value=100.0,value=10000.0,step=500.0)
-    st.caption("Returns are calculated through the latest *completed* calendar month.")
+    explanation(
+        "Returns are calculated through the latest *completed* calendar month.",
+        "تُحسب العوائد حتى آخر شهر تقويمي مكتمل، دون احتساب الشهر الجاري غير المنتهي.",
+    )
     with st.expander("What do these methods mean?"):
-        st.write("**Mean–Variance:** classic allocation from average historical returns and risk.")
-        st.write("**Random Forest:** a machine-learning model predicting next-month returns.")
-        st.write("**XGBoost:** a second machine-learning model for return prediction.")
-        st.write("The goal selector highlights historical results only; it does not personalize forecasts.")
+        explanation(
+            "**Mean–Variance:** classic allocation from average historical returns and risk.",
+            "المتوسط–التباين: يوزّع الاستثمار بناءً على متوسط العوائد التاريخية والمخاطر.",
+            kind="write",
+        )
+        explanation(
+            "**Random Forest:** a machine-learning model predicting next-month returns.",
+            "الغابة العشوائية: نموذج تعلم آلي يتنبأ بعوائد الشهر التالي.",
+            kind="write",
+        )
+        explanation(
+            "**XGBoost:** a second machine-learning model for return prediction.",
+            "إكس جي بوست: نموذج تعلم آلي آخر للتنبؤ بالعوائد.",
+            kind="write",
+        )
+        explanation(
+            "The goal selector highlights historical results only; it does not personalize forecasts.",
+            "اختيار الهدف يحدد النتيجة التاريخية التي نُبرزها، وليس توصية استثمارية شخصية أو ضمانًا للعوائد.",
+            kind="write",
+        )
     run=st.button("Build & compare portfolios",type="primary",
                   use_container_width=True,disabled=len(tickers)<2 or len(tickers)>25)
 
@@ -145,8 +184,12 @@ st.dataframe(pd.DataFrame([
 ]),hide_index=True,use_container_width=True)
 
 if "research_settings" not in st.session_state:
-    st.info("The default list includes SPY, GLD, TLT, IEFA, VNQ and USO. "
-            "Change any symbol, select your goal, then click **Build & compare portfolios**.")
+    explanation(
+        "The default list includes SPY, GLD, TLT, IEFA, VNQ and USO. "
+        "Change any symbol, select your goal, then click **Build & compare portfolios**.",
+        "القائمة الافتراضية تضم ستة صناديق استثمارية. يمكنك تغيير أي رمز وتحديد هدفك ثم تشغيل المقارنة.",
+        kind="info",
+    )
     st.stop()
 
 settings=st.session_state["research_settings"]
@@ -196,8 +239,13 @@ if eligible:
     else:
         winner=performance.loc[eligible,"Monthly Sharpe"].idxmax()
         reason="highest monthly Sharpe ratio"
-    st.info(f"**Historical result for your goal:** {winner} had the {reason} "
-            "during this test period. This is a comparison, not a personal investment recommendation.")
+    explanation(
+        f"**Historical result for your goal:** {winner} had the {reason} "
+        "during this test period. This is a comparison, not a personal investment recommendation.",
+        f"وفقًا لهدفك المختار، حققت محفظة {winner} أفضل قيمة للمؤشر المستخدم خلال فترة الاختبار التاريخية. "
+        "هذه مقارنة تعليمية وليست توصية استثمارية شخصية.",
+        kind="info",
+    )
 
 a,b,c,d=st.columns(4)
 a.metric("Assets",len(monthly.columns))
@@ -215,16 +263,25 @@ with tabs[0]:
     st.subheader("How did the portfolios grow?")
     wealth=(1+backtest).cumprod()
     st.line_chart(wealth)
-    st.caption("Growth of $1 invested at the start of the common out-of-sample period.")
+    explanation(
+        "Growth of $1 invested at the start of the common out-of-sample period.",
+        "يعرض الرسم نمو قيمة دولار واحد خلال فترة الاختبار المشتركة بين المحافظ الثلاث.",
+    )
     st.subheader(f"Illustrative growth of ${amount:,.0f}")
     st.line_chart(wealth*amount)
     st.subheader("Monthly portfolio returns")
     st.line_chart(backtest)
-    st.caption("Returns are historical and exclude transaction costs and taxes.")
+    explanation(
+        "Returns are historical and exclude transaction costs and taxes.",
+        "العوائد المعروضة تاريخية ولا تتضمن تكاليف التداول أو الضرائب.",
+    )
 
 with tabs[0]:
     st.subheader("Compare the three portfolio methods")
-    st.caption("Mean–Variance uses historical average returns. Random Forest and XGBoost predict next-month ETF returns.")
+    explanation(
+        "Mean–Variance uses historical average returns. Random Forest and XGBoost predict next-month ETF returns.",
+        "تعتمد Mean–Variance على متوسط العوائد السابقة؛ بينما يتنبأ Random Forest وXGBoost بعائد الشهر التالي.",
+    )
     st.subheader("Portfolio performance · Monthly risk")
     format_pct={x:"{:.2%}" for x in [
         "Cumulative Return","Mean Monthly Return","Monthly Volatility",
@@ -238,15 +295,20 @@ with tabs[0]:
     st.bar_chart(performance["Cumulative Return"])
     st.subheader("Monthly volatility by method")
     st.bar_chart(performance["Monthly Volatility"])
-    st.caption(
+    explanation(
         "All methods use the same monthly covariance estimator (Ledoit–Wolf, 36 prior months), "
         "the same long-only/full-investment constraints, and the same testing dates. "
-        "No maximum weight per individual asset is imposed."
+        "No maximum weight per individual asset is imposed.",
+        "تستخدم المحافظ الثلاث طريقة Ledoit–Wolf لتقدير المخاطر من عوائد آخر 36 شهرًا، "
+        "وتخضع للقيود وفترة الاختبار نفسها. لا يوجد سقف أعلى محدد لوزن أصل واحد.",
     )
-    st.markdown(
+    explanation(
         "**Recommendation:** Compare risk-adjusted performance and monthly volatility "
         "alongside cumulative returns. The historically strongest method is not guaranteed "
-        "to perform best in the future."
+        "to perform best in the future.",
+        "التوصية: لا تكتفِ بالعائد التراكمي؛ قارِن أيضًا شارب والتقلبات الشهرية. "
+        "الأفضل تاريخيًا ليس بالضرورة الأفضل مستقبلًا.",
+        kind="markdown",
     )
 
 with tabs[1]:
@@ -255,7 +317,10 @@ with tabs[1]:
     else:
         latest_date=forward["FormationDate"].max()
         st.subheader(f"Estimated portfolio allocations at {latest_date:%B %Y}")
-        st.caption("Model-estimated allocations for the next month; not realized returns or a trade recommendation.")
+        explanation(
+            "Model-estimated allocations for the next month; not realized returns or a trade recommendation.",
+            "أوزان تقديرية للشهر التالي وليست أرباحًا محققة أو توصية مباشرة بالشراء والبيع.",
+        )
         w=forward.pivot(index="Ticker",columns="Strategy",values="Weight").fillna(0)
         st.bar_chart(w)
         st.dataframe(w.style.format("{:.1%}"),use_container_width=True)
@@ -268,14 +333,21 @@ with tabs[1]:
         })
         st.dataframe(detail.style.format({"Weight":"{:.1%}","Illustrative USD":"${:,.2f}"}),
                      hide_index=True,use_container_width=True)
-        st.caption("Some methods may concentrate a large percentage in one asset because weights are not capped.")
+        explanation(
+            "Some methods may concentrate a large percentage in one asset because weights are not capped.",
+            "قد تتركز نسبة كبيرة من المحفظة في أصل واحد لأنه لا يوجد حد أعلى لوزنه.",
+        )
     st.subheader("Monthly changes in portfolio allocations")
     history_w=result["weights"].copy()
     chosen=st.selectbox("History for",["Mean-Variance","Random Forest","XGBoost"])
     historic=history_w[history_w["Strategy"]==chosen].pivot(
         index="Date",columns="Ticker",values="Weight")
     st.area_chart(historic)
-    st.markdown("**Recommendation:** Check for large single-asset weights and how allocations change over time before interpreting any method as diversified.")
+    explanation(
+        "**Recommendation:** Check for large single-asset weights and how allocations change over time before interpreting any method as diversified.",
+        "التوصية: راجع وزن كل سهم أو صندوق وتغير توزيعه عبر الزمن قبل اعتبار المحفظة متنوعة بما يكفي.",
+        kind="markdown",
+    )
 
 with tabs[2]:
     render_factor_dashboard(regimes)
@@ -285,7 +357,10 @@ with tabs[3]:
     st.subheader("Monthly return prediction errors")
     st.dataframe(forecast_errors.style.format({"MAE":"{:.4f}","RMSE":"{:.4f}"}),
                  use_container_width=True,hide_index=True)
-    st.caption("Both MAE and RMSE are in decimal monthly return units. Lower is better.")
+    explanation(
+        "Both MAE and RMSE are in decimal monthly return units. Lower is better.",
+        "مقياسا MAE وRMSE يوضحان خطأ التنبؤ بالعائد الشهري، وكلما انخفضت قيمتهما كانت الدقة أفضل.",
+    )
     selected_model=st.selectbox("Inspect predicted vs actual monthly returns",
                                 ["Random Forest","XGBoost"])
     forecast=result["predictions"]
@@ -298,7 +373,10 @@ with tabs[3]:
     st.subheader("Which inputs contribute to return predictions?")
     group_scores=selected_importance.groupby("Group")["Importance"].sum().sort_values(ascending=False)
     st.bar_chart(group_scores)
-    st.caption("Tree-model importance is predictive association, not evidence of causal effect.")
+    explanation(
+        "Tree-model importance is predictive association, not evidence of causal effect.",
+        "أهمية المتغيرات تعبّر عن دورها في التنبؤ، ولا تثبت علاقة سببية.",
+    )
     st.subheader("Training-only time-series cross-validation")
     st.dataframe(result["cv"],use_container_width=True,hide_index=True)
 
@@ -313,14 +391,18 @@ with tabs[3]:
         st.subheader(feature+" at portfolio-formation time")
         factor=latest_panel.drop_duplicates("Date").set_index("Date")[feature]
         st.line_chart(factor)
-    st.caption(
+    explanation(
         "High/low thresholds use TRAINING-period medians only. Each realized next-month "
-        "portfolio return is associated with the factors known at formation time."
+        "portfolio return is associated with the factors known at formation time.",
+        "تُحدد الحدود الفاصلة بين الظروف المرتفعة والمنخفضة من فترة التدريب فقط، "
+        "ثم يُقارن عائد الشهر التالي مع الظروف المعروفة عند تكوين المحفظة.",
     )
-    st.caption(
+    explanation(
         "FRED inflation, industrial growth and unemployment are conservatively lagged "
         "two months. FRED's revised historical series are not point-in-time vintages; "
-        "an ALFRED vintage robustness check remains necessary for strict academic validation."
+        "an ALFRED vintage robustness check remains necessary for strict academic validation.",
+        "تُؤخّر بيانات التضخم والنمو الصناعي والبطالة شهرين بصورة احترازية، "
+        "لكن بعض بيانات FRED التاريخية منقحة بعد نشرها، لذلك يلزم التحقق من النسخ الأصلية للبيانات.",
     )
 
 with tabs[3]:
@@ -357,18 +439,23 @@ with tabs[3]:
     st.download_button("Download all research tables (ZIP / CSV)",
                        data=to_zip(tables),file_name="portfolio_analysis_results.zip",
                        mime="application/zip",use_container_width=True)
-    st.caption(
+    explanation(
         "The ZIP includes the data used to create the comparisons and charts. "
-        "Check source coverage before interpreting any results."
+        "Check source coverage before interpreting any results.",
+        "يتضمن ملف ZIP الجداول التي بُنيت عليها المقارنات والرسومات؛ يُفضّل التأكد من اكتمال البيانات قبل الاستنتاج.",
     )
-    st.markdown(
+    explanation(
         "**Recommendation:** Use the downloadable tables to verify how often each "
-        "condition occurred and compare both forecast errors and portfolio risk."
+        "condition occurred and compare both forecast errors and portfolio risk.",
+        "التوصية: استخدم الملفات للتحقق من عدد الأشهر في كل حالة، وقارن أخطاء التنبؤ ومخاطر المحافظ.",
+        kind="markdown",
     )
 
 st.divider()
-st.caption(
+explanation(
     "Educational and research tool, not investment advice. Historical results can differ "
     "materially from future performance. Source errors and incomplete factor observations "
-    "are shown explicitly instead of fabricating missing data."
+    "are shown explicitly instead of fabricating missing data.",
+    "هذه أداة تعليمية وتحليلية وليست نصيحة استثمارية. قد تختلف النتائج المستقبلية عن التاريخية، "
+    "ويتم توضيح أخطاء المصادر أو نقص بيانات العوامل بدل تقديم بيانات غير حقيقية.",
 )
