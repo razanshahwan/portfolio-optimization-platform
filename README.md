@@ -1,59 +1,42 @@
-# Dynamic Portfolio Optimization with Machine Learning
+# Portfolio Optimization Platform
 
-This project supports a master's thesis on dynamic portfolio optimization using
-machine learning techniques. It compares machine-learning-based rebalanced
-portfolios against traditional portfolio baselines.
+Streamlit research and educational portfolio comparison tool.
 
-## Research Goal
+**Existing app URL:** https://portfolio-optimization-platform.streamlit.app/
 
-Evaluate whether machine learning can improve portfolio performance compared
-with traditional optimization methods under changing market conditions.
+## Getting started
+1. Enter any stock or ETF symbols, separated by commas (or restore the six thesis ETFs).
+2. Verify the full company/fund names and choose your comparison goal.
+3. Click **Build & compare portfolios**.
+4. Compare historical monthly risk and performance, view estimated portfolio allocations, and optionally inspect the research diagnostics.
+5. Download Chapter 4 research tables as a ZIP containing CSVs.
 
-## Initial Models
+## Default research portfolio
+SPY, GLD, TLT, IEFA, VNQ, USO. Users may select other stocks or ETFs, provided that sufficient price history is available.
 
-- Equal-weight portfolio (`1/N`)
-- Mean-variance portfolio
-- Machine-learning portfolio using return forecasts
+## Research methodology
+- Market source: Yahoo Finance, adjusted close, daily data aggregated to **completed months** only.
+- Additional factors: Federal Reserve Economic Data (FRED) and Caldara–Iacoviello GPR.
+- Four feature groups: technical, financial, real economy, political.
+- Machine learning: pooled Random Forest and XGBoost regression, ETF identifiers, time-series training-only CV.
+- Benchmark: historical mean–variance portfolio.
+- Split: earliest 70% of labeled monthly formation dates for training; most recent 30% for test.
+- Rebalancing: monthly walk-forward and expanding training. All strategies use monthly covariance of the last 36 ETF returns estimated via Ledoit–Wolf; long-only and fully invested.
+- Evaluation: monthly average return and volatility, cumulative return, monthly Sharpe, beta (when SPY is selected), 95% historical VaR, max drawdown, prediction MAE/RMSE.
 
-## Evaluation Metrics
-
-- Cumulative return
-- Annualized return
-- Annualized volatility
-- Sharpe ratio
-- Maximum drawdown
-
-## Setup
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+## Run locally
+```bash
 pip install -r requirements.txt
+streamlit run portfolio_platform.py
 ```
 
-If `py` is not available on your machine, install Python 3.11+ or use the
-Python interpreter available in your IDE.
+The older deployment entry point `portfolio_dashboard.py` now loads `portfolio_platform.py` so the existing site displays the same streamlined interface whichever entry script the deployment uses.
 
-## Run
-
-```powershell
-python -m src.main
-```
-
-The first version downloads daily prices from Yahoo Finance, builds monthly
-rebalanced portfolios, and prints a performance comparison.
-
-## Thesis Asset Universe
-
-The initial portfolio universe uses six liquid ETFs across different asset
-classes:
-
-- SPY: US equities
-- GLD: gold
-- TLT: long-term US Treasury bonds
-- IEFA: developed international equities
-- USO: oil ETF
-- VNQ: real estate investment trusts
-
-Note: `TLT` is a defensive fixed-income ETF, but it is not literally risk-free
-because long-term bond prices can fluctuate when interest rates change.
+## Reproducibility and interpretation
+- The current unfinished calendar month is omitted.
+- Some economic reports have release delays. The code applies a conservative two-month lag to selected monthly indicators.
+- FRED historical values may be revised, so this version is **not** a point-in-time macro vintage backtest. A publication-date/vintage robustness audit is needed before writing definitive thesis claims.
+- Long-only maximum-Sharpe portfolios can be concentrated.
+- Backtests omit transaction costs, commissions, taxes and market impact.
+- Source availability affects outputs. Errors should be shown rather than substituting fictitious data.
+- This is a historical educational comparison, not personalized financial advice.
