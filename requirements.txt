@@ -8,3 +8,4 @@ streamlit>=1.35
 seaborn>=0.13
 xgboost>=2.0
 statsmodels>=0.14
+xlrd>=2.0.1
