@@ -83,11 +83,6 @@ def to_zip(tables):
 
 
 st.image("assets/portfolio_hero.svg", use_container_width=True)
-st.toggle(
-    "🌐 Translate explanations to Arabic / إظهار ترجمة الشروحات بالعربية",
-    value=False, key="show_arabic",
-    help="Show Arabic explanations directly below the English text; charts and calculations stay the same.",
-)
 st.title("Portfolio Optimization Platform")
 arabic_below("منصة تحسين المحافظ الاستثمارية: مقارنة الطرق الثلاث وتحليل المخاطر وظروف السوق.")
 explanation(
@@ -106,6 +101,12 @@ explanation(
     "أدخل رموز الأسهم أو صناديق ETF التي تختارها. ستظهر الأسماء الكاملة للأصول "
     "ومقارنة تاريخية بين Mean–Variance وRandom Forest وXGBoost.",
     kind="write",
+)
+
+st.toggle(
+    "🌐 Translate explanations to Arabic / إظهار الترجمة العربية",
+    value=False, key="show_arabic",
+    help="Show Arabic text under the English explanations throughout the website.",
 )
 
 with st.sidebar:
