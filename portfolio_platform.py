@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 from market_factor_view import render_factor_dashboard
+from allocation_signals_view import render_allocation_signals
 from ui_translation import explanation, arabic_below
 
 from thesis_engine import (
@@ -265,6 +266,7 @@ d.metric("Last completed price month",monthly.index.max().strftime("%b %Y"))
 tabs=st.tabs([
     "📈 Performance",
     "🧩 Allocations",
+    "🧭 Allocation signals",
     "🌍 Four market factors",
     "🔎 More insights & downloads",
 ])
@@ -359,9 +361,18 @@ with tabs[1]:
     )
 
 with tabs[2]:
-    render_factor_dashboard(regimes)
+    render_allocation_signals(
+        forward=forward,
+        panel=latest_panel,
+        dates=period,
+        amount=amount,
+        full_name=full_name,
+    )
 
 with tabs[3]:
+    render_factor_dashboard(regimes)
+
+with tabs[4]:
     st.subheader("Understanding the return forecasts")
     st.subheader("Monthly return prediction errors")
     st.dataframe(forecast_errors.style.format({"MAE":"{:.4f}","RMSE":"{:.4f}"}),
@@ -389,7 +400,7 @@ with tabs[3]:
     st.subheader("Training-only time-series cross-validation")
     st.dataframe(result["cv"],use_container_width=True,hide_index=True)
 
-with tabs[3]:
+with tabs[4]:
     st.divider()
     st.subheader("Detailed factor and market conditions")
     st.subheader("Out-of-sample performance by financial and political conditions")
@@ -414,7 +425,7 @@ with tabs[3]:
         "لكن بعض بيانات FRED التاريخية منقحة بعد نشرها، لذلك يلزم التحقق من النسخ الأصلية للبيانات.",
     )
 
-with tabs[3]:
+with tabs[4]:
     st.divider()
     st.subheader("Download your results")
     st.subheader("Research data and methodology")
