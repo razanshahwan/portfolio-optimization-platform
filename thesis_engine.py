@@ -147,7 +147,7 @@ def geopolitical_factor():
     if monthcol is None or valuecol is None:
         raise ValueError("Official GPR Excel layout changed; review column labels.")
     x = raw[monthcol]
-    dates = pd.to_datetime(x.astype(str).str.replace(r"\\.0$","",regex=True),
+    dates = pd.to_datetime(x.astype(str).str.replace(r"\.0$","",regex=True),
                            format="%Y%m",errors="coerce")
     if dates.notna().sum() < len(x)*0.7:
         dates = pd.to_datetime(x,errors="coerce")
@@ -377,3 +377,29 @@ def regime_comparison(result):
                         "Monthly Volatility":sd,
                         "Monthly Sharpe":(r-group["RiskFree"]).mean()/sd if sd and len(r)>1 else np.nan})
     return pd.DataFrame(rows)
+
+
+def current_allocations(monthly, panel, parameters):
+    """Formation-month recommendations; targets for the current month are unknown."""
+    symbols=list(monthly.columns)
+    dt=panel["Date"].max()
+    latest=panel.loc[panel["Date"]==dt].set_index("Ticker").reindex(symbols)
+    history=monthly.loc[:dt,symbols].tail(36)
+    if history.isna().any().any() or len(history)!=36:
+        return pd.DataFrame()
+    covariance=LedoitWolf().fit(history.to_numpy()).covariance_
+    rf=float(latest["RF_Monthly"].iloc[0])
+    columns=FEATURES+[f"ETF_{t}" for t in symbols[1:]]
+    train=panel.loc[(panel["Date"]<dt)&panel["Target_Next_Return"].notna()].copy()
+    scores={"Mean-Variance":history.mean().to_numpy()}
+    for modelname,params in parameters.items():
+        model=make_model(modelname,params)
+        model.fit(train[columns],train["Target_Next_Return"])
+        scores[modelname]=model.predict(latest[columns])
+    records=[]
+    for modelname,pred in scores.items():
+        w=max_sharpe_weights(pred,covariance,rf)
+        for asset,value in zip(symbols,w):
+            records.append({"FormationDate":dt,"Strategy":modelname,
+                            "Ticker":asset,"Weight":float(value)})
+    return pd.DataFrame(records)
