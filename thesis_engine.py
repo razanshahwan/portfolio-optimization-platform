@@ -345,7 +345,7 @@ def metrics(result,monthly):
              "Maximum Drawdown":float(draw.min())}
         if market is not None:
             paired=pd.concat([x,market],axis=1).dropna()
-            row["Beta vs SPY"]=float(paired.iloc[:,0].cov(paired.iloc[:,1])/paired.iloc[:,1].var()) if paired.iloc[:,1].var() else np.nan
+            row["Beta"]=float(paired.iloc[:,0].cov(paired.iloc[:,1])/paired.iloc[:,1].var()) if paired.iloc[:,1].var() else np.nan
         rows.append(row)
     return pd.DataFrame(rows).set_index("Strategy")
 
