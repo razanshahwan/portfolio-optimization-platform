@@ -17,7 +17,7 @@ DEFAULT = ["SPY", "GLD", "TLT", "IEFA", "VNQ", "USO"]
 GPR_URL = "https://www.matteoiacoviello.com/gpr_files/data_gpr_export.xls"
 SERIES = {
     "real10": "DFII10", "treasury10": "DGS10", "treasury3": "DGS3MO",
-    "usd": "DTWEXBGS", "vix": "VIXCLS", "cpi": "CPIAUCSL",
+    "usd": "DTWEXBGS", "vix": "VIXCLS", "tbill": "DTB3", "cpi": "CPIAUCSL",
     "production": "INDPRO", "unemployment": "UNRATE",
 }
 TECH = ["RSI14", "BB_PctB", "BB_Width", "Price_SMA20", "SMA20_SMA50",
@@ -134,13 +134,14 @@ def fundamental_economic_factors():
     f["Inflation_YoY"] = (100*raw["cpi"].pct_change(12,fill_method=None)).shift(2)
     f["IndustrialGrowth_YoY"] = (100*raw["production"].pct_change(12,fill_method=None)).shift(2)
     f["Unemployment"] = raw["unemployment"].shift(2)
-    f["RF_Monthly"] = raw["treasury3"].ffill(limit=1)/1200
+    f["RF_Monthly"] = raw["tbill"].ffill(limit=1)/1200
     return f
 
 
 def geopolitical_factor():
     """Official Caldara-Iacoviello monthly GPR, available after month closes."""
     raw = pd.read_excel(GPR_URL,engine="xlrd")
+    # Monthly series supplied by the official source; retain global GPR only.
     cols = {str(k).strip().lower():k for k in raw.columns}
     monthcol = cols.get("month") or cols.get("date")
     valuecol = cols.get("gpr")
@@ -238,13 +239,17 @@ def max_sharpe_weights(mu,cov,rf):
 def evaluate_portfolios(monthly, panel):
     """Expanding-window regressors, 36M monthly Ledoit-Wolf risk estimation."""
     tickers=list(monthly.columns)
+    # Panel dates refer to the information available at formation month-end.
+    # Use one consistent realized monthly return target for every strategy.
+    returns=monthly.pct_change(fill_method=None)
     months=sorted(panel.loc[panel["Target_Next_Return"].notna(),"Date"].unique())
     split=int(len(months)*0.70)
     train_months=months[:split]
     test_months=months[split:]
     if len(train_months)<36 or len(test_months)<6:
         raise ValueError("Insufficient chronological training/testing months.")
-    initial=panel[panel["Date"].isin(train_months)].dropna(subset=["Target_Next_Return"])
+    initial=panel[panel["Date"].isin(train_months)].dropna(
+        subset=["Target_Next_Return"]).copy()
     id_columns=[f"ETF_{t}" for t in tickers[1:]]
     for t in tickers[1:]:
         panel[f"ETF_{t}"]=(panel["Ticker"]==t).astype(int)
@@ -265,14 +270,14 @@ def evaluate_portfolios(monthly, panel):
         training=panel[(panel["Date"]<dt)&panel["Target_Next_Return"].notna()]
         if len(training)<36*len(tickers):
             continue
-        risk_hist=monthly.loc[:dt,tickers].tail(36)
+        risk_hist=returns.loc[:dt,tickers].tail(36)
         if risk_hist.isna().any().any() or len(risk_hist)!=36:
             continue
         covariance=LedoitWolf().fit(risk_hist.to_numpy()).covariance_
         rf=float(sample["RF_Monthly"].iloc[0])
         mu_hist=risk_hist.mean().to_numpy()
         next_dt=monthly.index[monthly.index.get_loc(dt)+1]
-        actual=monthly.loc[next_dt,tickers]/monthly.loc[dt,tickers]-1
+        actual=returns.loc[next_dt,tickers]
         mu_dict={"Mean-Variance":mu_hist}
         for modelname,params in tuned:
             model=make_model(modelname,params)
@@ -315,7 +320,7 @@ def metrics(result,monthly):
     returns=result["returns"]
     conditions=result["conditions"]
     rf = conditions[conditions["Strategy"]=="Mean-Variance"].set_index("Date")["RiskFree"].reindex(returns.index)
-    market = monthly["SPY"].reindex(returns.index) if "SPY" in monthly else None
+    market = monthly["SPY"].pct_change(fill_method=None).reindex(returns.index) if "SPY" in monthly else None
     rows=[]
     for name in returns:
         x=returns[name].dropna()
@@ -384,7 +389,7 @@ def current_allocations(monthly, panel, parameters):
     symbols=list(monthly.columns)
     dt=panel["Date"].max()
     latest=panel.loc[panel["Date"]==dt].set_index("Ticker").reindex(symbols)
-    history=monthly.loc[:dt,symbols].tail(36)
+    history=monthly.pct_change(fill_method=None).loc[:dt,symbols].tail(36)
     if history.isna().any().any() or len(history)!=36:
         return pd.DataFrame()
     covariance=LedoitWolf().fit(history.to_numpy()).covariance_
