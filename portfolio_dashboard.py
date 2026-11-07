@@ -1,6 +1,9 @@
-"""Compatibility entry point for the existing Streamlit deployment.
+"""Compatibility entry point for the original Streamlit deployment.
 
-Both deployment entry points now render the same portfolio builder.
-All UI lives in portfolio_platform.py; all research calculations in thesis_engine.py.
+Streamlit reruns this script after user interactions. Using runpy ensures that
+the actual app UI is executed on every rerun, not cached as a Python import.
 """
-from portfolio_platform import *  # noqa: F401,F403
+from pathlib import Path
+import runpy
+
+runpy.run_path(str(Path(__file__).with_name("portfolio_platform.py")), run_name="__main__")
