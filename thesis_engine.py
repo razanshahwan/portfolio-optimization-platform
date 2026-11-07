@@ -62,7 +62,9 @@ def get_prices(tickers, start, today=None):
     usable = [x for x in tickers if candidate[x].notna().sum() >= 55]
     if len(usable) < 2:
         raise ValueError("Need at least two assets with 55+ complete monthly observations.")
-    monthly = monthly[usable].dropna(how="any")
+    # Warmup prices are used for technical indicators only; the reported research
+    # sample starts at the user's chosen date.
+    monthly = monthly.loc[monthly.index >= start, usable].dropna(how="any")
     close = close[usable]
     if len(monthly) < 60:
         raise ValueError("Too few overlapping months; select assets with longer histories.")
