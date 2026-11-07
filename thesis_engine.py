@@ -296,9 +296,17 @@ def evaluate_portfolios(monthly, panel):
         for strategy,mu in mu_dict.items():
             weights=max_sharpe_weights(mu,covariance,rf)
             realized=float(weights @ actual.reindex(tickers).to_numpy())
-            portfolio_rows.append({"Date":next_dt,"FormationDate":dt,
-                "Strategy":strategy,"Return":realized,"RiskFree":rf,
-                "VIX":sample["VIX"].iloc[0],"GPR":sample["GPR"].iloc[0]})
+            context_columns = (
+                "SMA20_SMA50", "RSI14", "BB_PctB", "Fib_Nearest",
+                "Real10Y", "TermSpread", "USD_Change", "VIX",
+                "Inflation_YoY", "IndustrialGrowth_YoY", "Unemployment", "GPR"
+            )
+            context = {name: float(sample[name].mean()) for name in context_columns}
+            portfolio_rows.append({
+                "Date":next_dt, "FormationDate":dt,
+                "Strategy":strategy, "Return":realized, "RiskFree":rf,
+                **context
+            })
             for t,w in zip(tickers,weights):
                 weight_rows.append({"Date":next_dt,"Strategy":strategy,
                                     "Ticker":t,"Weight":float(w)})
@@ -367,23 +375,71 @@ def group_importance(importance):
 
 
 def regime_comparison(result):
+    """Compare realized NEXT-month portfolios in regimes observed at formation.
+
+    High/low breakpoints come exclusively from training formation months.
+    Technical market signals are averages over the selected ETF universe.
+    """
     condition=result["conditions"].copy()
-    train=result["panel"]
+    all_panel=result["panel"].copy()
     cutoff=result["dates"]["TrainEnd"]
-    baseline=train[train["Date"]<=cutoff].drop_duplicates("Date")
-    for col in ("VIX","GPR"):
-        threshold=float(baseline[col].median())
-        condition[col+"_Regime"]=np.where(condition[col]>threshold,"High","Low")
-    rows=[]
-    for regimecol in ("VIX_Regime","GPR_Regime"):
-        for (name,state),group in condition.groupby(["Strategy",regimecol]):
-            r=group["Return"]
-            sd=r.std()
-            rows.append({"Factor":regimecol,"Condition":state,"Strategy":name,
-                        "Months":len(group),"Mean Monthly Return":r.mean(),
-                        "Monthly Volatility":sd,
-                        "Monthly Sharpe":(r-group["RiskFree"]).mean()/sd if sd and len(r)>1 else np.nan})
-    return pd.DataFrame(rows)
+    monthly=all_panel.groupby("Date").mean(numeric_only=True).sort_index()
+    baseline=monthly.loc[:cutoff]
+    if baseline.empty:
+        return pd.DataFrame()
+
+    regime_cols = [
+        "SMA20_SMA50", "RSI14", "BB_PctB", "Fib_Nearest",
+        "Real10Y", "TermSpread", "USD_Change", "VIX",
+        "Inflation_YoY", "IndustrialGrowth_YoY", "GPR"
+    ]
+    factor_labels={
+        "SMA20_SMA50":"Technical trend (SMA20 / SMA50)",
+        "RSI14":"Technical RSI14",
+        "BB_PctB":"Technical Bollinger %B",
+        "Fib_Nearest":"Technical Fibonacci distance",
+        "Real10Y":"Financial real Treasury rate",
+        "TermSpread":"Financial yield-curve spread",
+        "USD_Change":"Financial dollar movement",
+        "VIX":"Financial volatility (VIX)",
+        "Inflation_YoY":"Real economy inflation",
+        "IndustrialGrowth_YoY":"Real economy industrial growth",
+        "GPR":"Political geopolitical risk",
+    }
+    results=[]
+    def summarize(factor,states):
+        tmp=condition.copy()
+        tmp["Condition"]=states
+        for (name,state),g in tmp.groupby(["Strategy","Condition"],dropna=True):
+            x=g["Return"]
+            vol=float(x.std()) if len(x)>1 else float("nan")
+            sharpe=float((x-g["RiskFree"]).mean()/vol) if vol>0 else float("nan")
+            results.append({
+                "Factor":factor,"Condition":state,"Strategy":name,
+                "Months":len(x),"Mean Monthly Return":float(x.mean()),
+                "Monthly Volatility":vol,"Monthly Sharpe":sharpe
+            })
+
+    for col in regime_cols:
+        if col=="SMA20_SMA50":
+            states=np.where(condition[col]>1.0,"Uptrend","Downtrend")
+        elif col=="TermSpread":
+            states=np.where(condition[col]<0,"Inverted","Positive")
+        else:
+            median=float(baseline[col].median())
+            states=np.where(condition[col]>median,"High","Low")
+        summarize(factor_labels[col],states)
+
+    # Expansion: positive industrial growth and no rise in the most recently
+    # published unemployment value. The latest published values are already lagged.
+    change=monthly["Unemployment"].diff()
+    month_change=condition["FormationDate"].map(change)
+    states=np.where(
+        (condition["IndustrialGrowth_YoY"]>0)&(month_change<=0),
+        "Expansion","Slowdown"
+    )
+    summarize("Real economy expansion / slowdown",states)
+    return pd.DataFrame(results)
 
 
 def current_allocations(monthly, panel, parameters):
