@@ -81,7 +81,8 @@ def to_zip(tables):
 
 
 st.title("Portfolio Optimization Platform")
-st.caption("Choose your stocks or ETFs · Compare three strategies · Explore portfolio risk and return")
+st.caption("A simple way to build and compare investment portfolios")
+st.markdown("**1. Pick assets → 2. Choose a goal → 3. Compare portfolio methods.**")
 st.write(
     "Enter the symbols you want to invest in. The platform shows the complete "
     "company or fund names and compares **Mean–Variance**, **Random Forest**, "
@@ -122,6 +123,11 @@ with st.sidebar:
     investment=st.number_input("Example investment (USD)",
                                min_value=100.0,value=10000.0,step=500.0)
     st.caption("Returns are calculated through the latest *completed* calendar month.")
+    with st.expander("What do these methods mean?"):
+        st.write("**Mean–Variance:** classic allocation from average historical returns and risk.")
+        st.write("**Random Forest:** a machine-learning model predicting next-month returns.")
+        st.write("**XGBoost:** a second machine-learning model for return prediction.")
+        st.write("The goal selector highlights historical results only; it does not personalize forecasts.")
     run=st.button("Build & compare portfolios",type="primary",
                   use_container_width=True,disabled=len(tickers)<2 or len(tickers)>25)
 
@@ -157,7 +163,6 @@ try:
     with st.spinner("Retrieving FRED variables and the official Geopolitical Risk Index..."):
         fred,gpr=macro_data()
     with st.spinner("Training Random Forest / XGBoost and testing monthly portfolio decisions..."):
-        result,forward=current_allocations, None
         result,forward=research_run(monthly,daily,fred,gpr)
 except Exception as exc:
     st.error(f"Could not finish this analysis: {exc}")
@@ -199,8 +204,9 @@ c.metric("Portfolio methods",len(eligible))
 d.metric("Last completed price month",monthly.index.max().strftime("%b %Y"))
 
 tabs=st.tabs([
-    "Overview & charts","Compare strategies","Portfolio weights",
-    "ML accuracy","Factors & market conditions","Data & Chapter 4 exports",
+    "📈 Results & comparison",
+    "🧩 Portfolio allocations",
+    "📚 Research details & downloads",
 ])
 with tabs[0]:
     st.subheader("How did the portfolios grow?")
@@ -213,7 +219,9 @@ with tabs[0]:
     st.line_chart(backtest)
     st.caption("Returns are historical and exclude transaction costs and taxes.")
 
-with tabs[1]:
+with tabs[0]:
+    st.subheader("Compare the three portfolio methods")
+    st.caption("Mean–Variance uses historical average returns. Random Forest and XGBoost predict next-month ETF returns.")
     st.subheader("Table 4.1 · Portfolio performance (monthly risk)")
     format_pct={x:"{:.2%}" for x in [
         "Cumulative Return","Mean Monthly Return","Monthly Volatility",
@@ -233,7 +241,7 @@ with tabs[1]:
         "No single-asset maximum weight is imposed in Chapter 3."
     )
 
-with tabs[2]:
+with tabs[1]:
     if forward.empty:
         st.warning("Latest allocations are not available for this dataset.")
     else:
@@ -260,7 +268,8 @@ with tabs[2]:
         index="Date",columns="Ticker",values="Weight")
     st.area_chart(historic)
 
-with tabs[3]:
+with tabs[2]:
+    st.subheader("Research section · Prediction accuracy")
     st.subheader("Table 4.2 · Return prediction errors")
     st.dataframe(forecast_errors.style.format({"MAE":"{:.4f}","RMSE":"{:.4f}"}),
                  use_container_width=True,hide_index=True)
@@ -281,7 +290,9 @@ with tabs[3]:
     st.subheader("Training-only time-series cross-validation")
     st.dataframe(result["cv"],use_container_width=True,hide_index=True)
 
-with tabs[4]:
+with tabs[2]:
+    st.divider()
+    st.subheader("Research section · Factors and market conditions")
     st.subheader("Out-of-sample performance by financial and political conditions")
     st.dataframe(regimes.style.format({
         "Mean Monthly Return":"{:.2%}","Monthly Volatility":"{:.2%}",
@@ -300,7 +311,9 @@ with tabs[4]:
         "an ALFRED vintage robustness check remains necessary for strict academic validation."
     )
 
-with tabs[5]:
+with tabs[2]:
+    st.divider()
+    st.subheader("Research section · Export thesis data")
     st.subheader("Research data and methodology")
     st.write(
         "Ticker universe: "+", ".join(monthly.columns)
