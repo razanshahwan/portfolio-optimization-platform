@@ -230,8 +230,8 @@ with tabs[0]:
         "Cumulative Return","Mean Monthly Return","Monthly Volatility",
         "Historical VaR 95%","Maximum Drawdown"]}
     format_pct["Monthly Sharpe"]="{:.3f}"
-    if "Beta vs SPY" in performance:
-        format_pct["Beta vs SPY"]="{:.3f}"
+    if "Beta" in performance:
+        format_pct["Beta"]="{:.3f}"
     st.dataframe(performance.style.format(format_pct),
                  use_container_width=True)
     st.subheader("Cumulative return by method")
