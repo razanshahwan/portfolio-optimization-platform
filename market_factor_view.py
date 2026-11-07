@@ -5,6 +5,7 @@ available at formation time. Descriptive evidence, not causal attribution.
 """
 import pandas as pd
 import streamlit as st
+from ui_translation import explanation, arabic_below
 
 FACTOR_GROUPS = {
     "Technical analysis": {
@@ -29,6 +30,21 @@ FACTOR_GROUPS = {
     }
 }
 
+FACTOR_ARABIC = {
+    "Technical trend (SMA20 / SMA50)": "الاتجاه الصاعد يعني أن المتوسط المتحرك لعشرين يومًا أعلى من متوسط خمسين يومًا للأصول المختارة بشكل عام.",
+    "Technical RSI14": "مقارنة الفترات ذات قوة الأسعار الأخيرة الأعلى أو الأقل.",
+    "Technical Bollinger %B": "مقارنة موقع السعر المرتفع أو المنخفض نسبيًا داخل نطاقات بولينجر.",
+    "Technical Fibonacci distance": "مقارنة بُعد السعر عن مستويات تصحيح فيبوناتشي.",
+    "Financial volatility (VIX)": "ارتفاع VIX يشير إلى زيادة التقلب المتوقع في سوق الأسهم الأمريكية.",
+    "Financial real Treasury rate": "مقارنة الفترات ذات عوائد سندات الخزانة الحقيقية الأعلى والأقل.",
+    "Financial yield-curve spread": "انعكاس منحنى العائد يعني أن العائد طويل الأجل أقل من العائد قصير الأجل.",
+    "Financial dollar movement": "مقارنة الفترات التي شهدت ارتفاعًا أو انخفاضًا نسبيًا في الدولار الأمريكي.",
+    "Real economy expansion / slowdown": "التوسع يعني نموًا صناعيًا موجبًا دون ارتفاع في أحدث معدل بطالة منشور.",
+    "Real economy inflation": "مقارنة الفترات التي كان فيها التضخم مرتفعًا أو منخفضًا.",
+    "Real economy industrial growth": "مقارنة فترات النمو الصناعي الأقوى والأضعف.",
+    "Political geopolitical risk": "مؤشر المخاطر الجيوسياسية GPR يقارن فترات التوتر الجيوسياسي المرتفع والمنخفض."
+}
+
 METHODS = ["Mean-Variance", "Random Forest", "XGBoost"]
 GROUP_ICONS = {
     "Technical analysis": "📉",
@@ -41,16 +57,26 @@ GROUP_ICONS = {
 def render_factor_dashboard(regimes: pd.DataFrame):
     """Show four groups, three strategies, return/risk charts and evidence limits."""
     st.header("How market conditions relate to portfolio performance")
-    st.write(
+    explanation(
         "Compare what happened to **all three strategies** in the month AFTER "
         "different market conditions were observed. Explore technical trends, "
-        "financial markets, the real economy and geopolitical risk."
+        "financial markets, the real economy and geopolitical risk.",
+        "نقارن أداء المحافظ الثلاث خلال الشهر التالي لظروف سوق مختلفة، "
+        "بما يشمل المؤشرات الفنية والمالية والاقتصادية والمخاطر الجيوسياسية.",
+        kind="write",
     )
     if regimes.empty:
         st.warning("Factor comparisons are unavailable for the selected date range.")
         return
 
-    st.subheader("At a glance: four factors × three portfolio methods")
+    st.subheader("Portfolio Performance Under Different Market Conditions")
+    explanation(
+        "Each cell compares the average next-month return in two conditions. "
+        "**pp = percentage points**, not percentage changes. For example, "
+        "3.0% minus 1.5% equals +1.5 pp.",
+        "كل خلية تعرض الفرق بين متوسط العائد الشهري في حالتين من ظروف السوق. "
+        "اختصار pp يعني «نقاط مئوية». مثلًا 3% ناقص 1.5% يساوي 1.5 نقطة مئوية.",
+    )
     comparisons = [
         ("Technical", "Technical trend (SMA20 / SMA50)", "Uptrend", "Downtrend"),
         ("Financial", "Financial volatility (VIX)", "High", "Low"),
@@ -69,12 +95,17 @@ def render_factor_dashboard(regimes: pd.DataFrame):
             overview[label] = float("nan")
     st.dataframe(overview.style.format("{:+.2f} pp", na_rep="N/A"), use_container_width=True)
     st.bar_chart(overview.T, use_container_width=True)
-    st.caption(
-        "Difference in average NEXT-month return, in percentage points (pp): "
-        "Technical = uptrend minus downtrend; Financial = high VIX minus low VIX; "
-        "Real economy = expansion minus slowdown; Political = high GPR minus low GPR. "
-        "Positive values mean higher historical returns in the first named condition. "
-        "This comparison is descriptive, not causal."
+    explanation(
+        "Difference in average NEXT-month return (percentage points, pp): "
+        "Technical = uptrend − downtrend; Financial = high VIX − low VIX; "
+        "Real economy = expansion − slowdown; Political = high GPR − low GPR. "
+        "Positive means a higher historical return in the first condition; "
+        "negative means a lower return. These differences do not show causation.",
+        "الفرق في متوسط العائد للشهر التالي (بالنقاط المئوية): "
+        "الفني = الاتجاه الصاعد ناقص الهابط؛ المالي = تقلبات VIX المرتفعة ناقص المنخفضة؛ "
+        "الاقتصادي = التوسع ناقص التباطؤ؛ السياسي = مخاطر GPR المرتفعة ناقص المنخفضة. "
+        "الإشارة الموجبة تعني عائدًا تاريخيًا أعلى في الحالة الأولى، والسالبة أقل. "
+        "هذه مقارنة وصفية ولا تثبت السببية.",
     )
 
     pages = st.tabs([
@@ -89,7 +120,7 @@ def render_factor_dashboard(regimes: pd.DataFrame):
                 list(factors.keys()),
                 key="factor_" + group.replace(" ", "_"),
             )
-            st.caption(factors[factor])
+            explanation(factors[factor], FACTOR_ARABIC.get(factor, "شرح المؤشر."))
             subset = regimes.loc[regimes["Factor"] == factor].copy()
             if subset.empty:
                 st.warning("There are not enough observations for this indicator.")
@@ -102,9 +133,10 @@ def render_factor_dashboard(regimes: pd.DataFrame):
                 values="Mean Monthly Return",
             ).reindex(METHODS) * 100
             st.bar_chart(returns_chart, use_container_width=True)
-            st.caption(
+            explanation(
                 "Each bar shows the average NEXT-month return in percent (%). "
-                "The values are not cumulative gains."
+                "The values are not cumulative gains.",
+                "يمثّل كل عمود متوسط عائد الشهر التالي كنسبة مئوية، وليس العائد التراكمي.",
             )
 
             st.markdown("#### Monthly risk (volatility)")
@@ -114,7 +146,10 @@ def render_factor_dashboard(regimes: pd.DataFrame):
                 values="Monthly Volatility",
             ).reindex(METHODS) * 100
             st.bar_chart(risks_chart, use_container_width=True)
-            st.caption("Monthly volatility in percent (%). Lower indicates less historical variation.")
+            explanation(
+                "Monthly volatility in percent (%). Lower indicates less historical variation.",
+                "التقلب الشهري معروض بالنسبة المئوية. كلما انخفضت القيمة، كانت تذبذبات العوائد التاريخية أقل.",
+            )
 
             st.markdown("#### Compare the three methods")
             table = subset[[
@@ -126,7 +161,10 @@ def render_factor_dashboard(regimes: pd.DataFrame):
                 "Monthly Volatility": "{:.2%}",
                 "Monthly Sharpe": "{:.2f}",
             }), hide_index=True, use_container_width=True)
-            st.caption("Months = number of realized monthly returns in that condition.")
+            explanation(
+                "Months = number of realized monthly returns in that condition.",
+                "Months تعني عدد الأشهر التي ظهرت فيها تلك الحالة؛ حجم العينة مهم لتفسير النتائج.",
+            )
 
             st.markdown("#### Historical insight")
             conditions = sorted(subset["Condition"].dropna().unique().tolist())
@@ -141,22 +179,31 @@ def render_factor_dashboard(regimes: pd.DataFrame):
                 ]
                 if not focus_rows.empty and (focus_rows["Months"] >= 5).all():
                     best = focus_rows.loc[focus_rows["Monthly Sharpe"].idxmax()]
-                    st.info(
+                    explanation(
                         f"When **{focus}** was observed, **{best['Strategy']}** had "
                         f"the highest monthly Sharpe ratio in this backtest "
                         f"({best['Monthly Sharpe']:.2f}; {int(best['Months'])} months). "
-                        "Compare the return and volatility bars before interpreting that ranking."
+                        "Compare the return and volatility bars before interpreting that ranking.",
+                        f"عند ظهور حالة {focus}، حققت محفظة {best['Strategy']} أعلى نسبة شارب شهرية "
+                        f"ضمن الاختبار التاريخي ({best['Monthly Sharpe']:.2f}) بناءً على "
+                        f"{int(best['Months'])} شهرًا. قارني العائد بالتقلب قبل اختيار طريقة.",
+                        kind="info",
                     )
                 else:
-                    st.info(
+                    explanation(
                         "This condition has limited observations or missing risk estimates. "
-                        "A method ranking is not reliable enough to highlight."
+                        "A method ranking is not reliable enough to highlight.",
+                        "عدد الأشهر قليل أو بعض تقديرات المخاطر غير متوفرة؛ لذلك لا يمكن إبراز ترتيب موثوق للطرق.",
+                        kind="info",
                     )
 
-            st.caption(
+            explanation(
                 "These are historical associations, NOT proof that any factor caused a "
                 "portfolio gain or loss. High/low thresholds use training-period data only. "
-                "Every method is compared over the same dates."
+                "Every method is compared over the same dates.",
+                "توضح النتائج علاقات تاريخية ولا تثبت أن العامل سبّب ربحًا أو خسارة. "
+                "حدود الحالات المرتفعة والمنخفضة محسوبة من بيانات التدريب، "
+                "وجميع المحافظ تُقارن في الفترة نفسها.",
             )
 
     with st.expander("What are the four market-factor groups?"):
@@ -172,6 +219,11 @@ def render_factor_dashboard(regimes: pd.DataFrame):
             "to predict next-month asset returns. All three methods are then evaluated "
             "under the same market conditions."
         )
-    st.markdown("**Recommendation:** Use the factor comparisons to assess whether a strategy's "
-                "historical results were consistent across different conditions, not to predict "
-                "which method will win in the next month.")
+    explanation(
+        "**Recommendation:** Use factor comparisons to assess whether a strategy's "
+        "historical results were consistent across different conditions, not to predict "
+        "which method will win next month.",
+        "التوصية: قارني مدى ثبات نتائج كل محفظة بين ظروف السوق المختلفة، "
+        "ولا تستخدمي هذا الجدول للتنبؤ بالطريقة التي ستتفوق الشهر المقبل.",
+        kind="markdown",
+    )
