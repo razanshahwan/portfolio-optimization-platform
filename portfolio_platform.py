@@ -7,6 +7,7 @@ import zipfile
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+from market_factor_view import render_factor_dashboard
 
 from thesis_engine import (
     DEFAULT, GROUPS, get_prices, technical_panel,
@@ -69,7 +70,7 @@ def to_zip(tables):
             if table is not None and isinstance(table,pd.DataFrame):
                 z.writestr(name+".csv",table.to_csv(index=True).encode("utf-8-sig"))
         z.writestr("README.txt",(
-            "Portfolio Optimization Platform – Chapter 4 research exports\n"
+            "Portfolio Optimization Platform – Historical results and data\n"
             "All performance risk measures are monthly; cumulative returns cover test only.\n"
             "Prices: Yahoo Finance adjusted close; macro: FRED; GPR: Caldara-Iacoviello.\n"
             "Market prices are updated on rerun; current incomplete month excluded.\n"
@@ -80,8 +81,9 @@ def to_zip(tables):
     return buffer.getvalue()
 
 
+st.image("assets/portfolio_hero.svg", use_container_width=True)
 st.title("Portfolio Optimization Platform")
-st.caption("A simple way to build and compare investment portfolios")
+st.caption("Build portfolios, compare three methods, and see how market conditions relate to performance.")
 st.markdown("**1. Pick assets → 2. Choose a goal → 3. Compare portfolio methods.**")
 st.write(
     "Enter the symbols you want to invest in. The platform shows the complete "
@@ -93,7 +95,7 @@ with st.sidebar:
     st.header("Step 1 · Your assets")
     if "symbol_text" not in st.session_state:
         st.session_state["symbol_text"]=", ".join(DEFAULT)
-    if st.button("Restore the 6 thesis ETFs",use_container_width=True):
+    if st.button("Restore the 6 default ETFs",use_container_width=True):
         st.session_state["symbol_text"]=", ".join(DEFAULT)
     typed=st.text_area(
         "Stock / ETF symbols",key="symbol_text",height=92,
@@ -166,7 +168,7 @@ try:
         result,forward=research_run(monthly,daily,fred,gpr)
 except Exception as exc:
     st.error(f"Could not finish this analysis: {exc}")
-    st.info("The full thesis analysis requires Yahoo Finance, FRED and official GPR data. "
+    st.info("The complete comparison requires Yahoo Finance, FRED and official GPR data. "
             "A source outage is displayed rather than silently replacing economic factors.")
     st.stop()
 
@@ -204,9 +206,10 @@ c.metric("Portfolio methods",len(eligible))
 d.metric("Last completed price month",monthly.index.max().strftime("%b %Y"))
 
 tabs=st.tabs([
-    "📈 Results & comparison",
-    "🧩 Portfolio allocations",
-    "📚 Research details & downloads",
+    "📈 Performance",
+    "🧩 Allocations",
+    "🌍 Four market factors",
+    "🔎 More insights & downloads",
 ])
 with tabs[0]:
     st.subheader("How did the portfolios grow?")
@@ -222,7 +225,7 @@ with tabs[0]:
 with tabs[0]:
     st.subheader("Compare the three portfolio methods")
     st.caption("Mean–Variance uses historical average returns. Random Forest and XGBoost predict next-month ETF returns.")
-    st.subheader("Table 4.1 · Portfolio performance (monthly risk)")
+    st.subheader("Portfolio performance · Monthly risk")
     format_pct={x:"{:.2%}" for x in [
         "Cumulative Return","Mean Monthly Return","Monthly Volatility",
         "Historical VaR 95%","Maximum Drawdown"]}
@@ -238,7 +241,12 @@ with tabs[0]:
     st.caption(
         "All methods use the same monthly covariance estimator (Ledoit–Wolf, 36 prior months), "
         "the same long-only/full-investment constraints, and the same testing dates. "
-        "No single-asset maximum weight is imposed in Chapter 3."
+        "No maximum weight per individual asset is imposed."
+    )
+    st.markdown(
+        "**Recommendation:** Compare risk-adjusted performance and monthly volatility "
+        "alongside cumulative returns. The historically strongest method is not guaranteed "
+        "to perform best in the future."
     )
 
 with tabs[1]:
@@ -260,17 +268,21 @@ with tabs[1]:
         })
         st.dataframe(detail.style.format({"Weight":"{:.1%}","Illustrative USD":"${:,.2f}"}),
                      hide_index=True,use_container_width=True)
-        st.caption("Weights may be concentrated because Chapter 3 does not set a maximum weight per asset.")
+        st.caption("Some methods may concentrate a large percentage in one asset because weights are not capped.")
     st.subheader("Monthly changes in portfolio allocations")
     history_w=result["weights"].copy()
     chosen=st.selectbox("History for",["Mean-Variance","Random Forest","XGBoost"])
     historic=history_w[history_w["Strategy"]==chosen].pivot(
         index="Date",columns="Ticker",values="Weight")
     st.area_chart(historic)
+    st.markdown("**Recommendation:** Check for large single-asset weights and how allocations change over time before interpreting any method as diversified.")
 
 with tabs[2]:
-    st.subheader("Research section · Prediction accuracy")
-    st.subheader("Table 4.2 · Return prediction errors")
+    render_factor_dashboard(regimes)
+
+with tabs[3]:
+    st.subheader("Understanding the return forecasts")
+    st.subheader("Monthly return prediction errors")
     st.dataframe(forecast_errors.style.format({"MAE":"{:.4f}","RMSE":"{:.4f}"}),
                  use_container_width=True,hide_index=True)
     st.caption("Both MAE and RMSE are in decimal monthly return units. Lower is better.")
@@ -283,16 +295,16 @@ with tabs[2]:
     selected_importance=importance[importance["Model"]==selected_model]
     top_features=selected_importance.sort_values("Importance",ascending=False).head(18)
     st.bar_chart(top_features.set_index("Feature")["Importance"])
-    st.subheader("Four groups of research factors")
+    st.subheader("Which inputs contribute to return predictions?")
     group_scores=selected_importance.groupby("Group")["Importance"].sum().sort_values(ascending=False)
     st.bar_chart(group_scores)
     st.caption("Tree-model importance is predictive association, not evidence of causal effect.")
     st.subheader("Training-only time-series cross-validation")
     st.dataframe(result["cv"],use_container_width=True,hide_index=True)
 
-with tabs[2]:
+with tabs[3]:
     st.divider()
-    st.subheader("Research section · Factors and market conditions")
+    st.subheader("Detailed factor and market conditions")
     st.subheader("Out-of-sample performance by financial and political conditions")
     st.dataframe(regimes.style.format({
         "Mean Monthly Return":"{:.2%}","Monthly Volatility":"{:.2%}",
@@ -311,9 +323,9 @@ with tabs[2]:
         "an ALFRED vintage robustness check remains necessary for strict academic validation."
     )
 
-with tabs[2]:
+with tabs[3]:
     st.divider()
-    st.subheader("Research section · Export thesis data")
+    st.subheader("Download your results")
     st.subheader("Research data and methodology")
     st.write(
         "Ticker universe: "+", ".join(monthly.columns)
@@ -327,7 +339,7 @@ with tabs[2]:
     st.dataframe(table,hide_index=True,use_container_width=True)
     st.subheader("Panel data preview")
     st.dataframe(latest_panel.tail(18),use_container_width=True,hide_index=True)
-    st.subheader("Export Chapter 4 tables and figures data")
+    st.subheader("Download numerical tables and chart data")
     tables={
         "01_monthly_prices":monthly,
         "02_monthly_returns":monthly.pct_change(fill_method=None),
@@ -343,11 +355,15 @@ with tabs[2]:
         "12_training_cv":result["cv"],
     }
     st.download_button("Download all research tables (ZIP / CSV)",
-                       data=to_zip(tables),file_name="thesis_chapter4_results.zip",
+                       data=to_zip(tables),file_name="portfolio_analysis_results.zip",
                        mime="application/zip",use_container_width=True)
     st.caption(
-        "The ZIP provides reproducible numeric tables for Chapter 4. "
-        "Do not report findings before checking source coverage and model diagnostics."
+        "The ZIP includes the data used to create the comparisons and charts. "
+        "Check source coverage before interpreting any results."
+    )
+    st.markdown(
+        "**Recommendation:** Use the downloadable tables to verify how often each "
+        "condition occurred and compare both forecast errors and portfolio risk."
     )
 
 st.divider()
