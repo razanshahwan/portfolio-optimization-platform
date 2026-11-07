@@ -52,7 +52,7 @@ except ModuleNotFoundError:
 
 st.set_page_config(page_title="Portfolio Optimization Platform", layout="wide")
 
-DEFAULT_TICKERS = ["XOM", "GOLD", "JNJ", "AAPL"]
+DEFAULT_TICKERS = ["SPY", "GLD", "TLT", "IEFA", "VNQ", "USO"]
 DEFAULT_TICKER_TEXT = ", ".join(DEFAULT_TICKERS)
 OLD_DEFAULT_TICKER_TEXT = "SPY, GOLD, TLT, IEFA, USO, VNQ"
 SECTOR_TICKERS = ["SPY", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE"]
@@ -77,7 +77,17 @@ def yahoo_raw(value):
     return value
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
+def lookup_asset_name(ticker):
+    """Look up the full name of any chosen company or ETF."""
+    try:
+        info = yf.Ticker(ticker).get_info()
+        return info.get("longName") or info.get("shortName") or "Name unavailable"
+    except Exception:
+        return "Name unavailable — please verify symbol"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def download_market_data(tickers, start_date, end_date):
     tickers = list(dict.fromkeys(tickers))
     data = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
@@ -813,10 +823,8 @@ st.title("Portfolio Optimization Platform")
 st.caption("Analyze any Yahoo Finance tickers, optimize a portfolio, and compare traditional and ML models.")
 
 with st.sidebar:
-    st.header("Portfolio Inputs")
-    ticker_state_key = "portfolio_ticker_input_v2"
-    if st.session_state.get(ticker_state_key, OLD_DEFAULT_TICKER_TEXT) == OLD_DEFAULT_TICKER_TEXT:
-        st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
+    st.header("1. Build your portfolio")
+    ticker_state_key = "portfolio_ticker_input_v3"
     if st.button("Reset to default tickers"):
         st.session_state[ticker_state_key] = DEFAULT_TICKER_TEXT
     ticker_text = st.text_area(
@@ -831,6 +839,20 @@ with st.sidebar:
     investment_amount = st.number_input("Investment amount ($)", min_value=100.0, value=10000.0, step=500.0)
     lookback_months = st.slider("Training lookback months", 24, 60, 36)
     max_weight = st.slider("Maximum weight per asset", 0.10, 0.80, 0.35, 0.05)
+    st.caption("Company / ETF names update when you enter symbols and press Enter or click outside the field.")
+    if tickers:
+        name_table = pd.DataFrame([
+            {"Symbol": ticker, "Full name": lookup_asset_name(ticker)}
+            for ticker in tickers
+        ])
+        st.dataframe(name_table, hide_index=True, use_container_width=True)
+    st.header("2. Choose your goal")
+    comparison_goal = st.selectbox(
+        "Compare portfolios by",
+        ["Best risk-adjusted return", "Highest cumulative return", "Lowest volatility"],
+        help="Highlights the historically best-performing method for your preferred measure.",
+    )
+    st.header("3. Analysis settings")
     st.header("Speed Settings")
     speed_mode = st.selectbox("Analysis speed", ["Fast", "Balanced", "Full"], index=0)
     include_ml_portfolios = st.checkbox("Run ML portfolio strategies", value=speed_mode != "Fast")
@@ -868,7 +890,9 @@ with st.spinner("Downloading Yahoo Finance data and running the platform..."):
         st.warning(f"These symbols were not returned by Yahoo Finance: {', '.join(missing_tickers)}")
 
     valid_tickers = list(prices.columns)
-    monthly_returns = prices.resample("ME").last().pct_change().dropna(how="all")
+    complete_through = pd.Timestamp.today().normalize().replace(day=1) - pd.Timedelta(days=1)
+    month_end_prices = prices.resample("ME").last().loc[:complete_through]
+    monthly_returns = month_end_prices.pct_change().dropna(how="all")
     features = make_features(monthly_returns)
     strategy_returns, strategy_weights = run_portfolio_backtest(
         monthly_returns,
@@ -905,6 +929,21 @@ if strategy_returns.empty:
 cumulative_returns = (1 + strategy_returns).cumprod()
 portfolio_value = cumulative_returns * investment_amount
 metrics = strategy_returns.apply(performance_metrics).T.sort_values("Sharpe Ratio", ascending=False)
+comparison_candidates = [x for x in ["Mean-Variance", "Random Forest", "XGBoost"] if x in metrics.index]
+if comparison_candidates:
+    if comparison_goal == "Highest cumulative return":
+        goal_score = (1 + strategy_returns[comparison_candidates]).prod() - 1
+        goal_winner = goal_score.idxmax()
+        goal_criterion = "highest cumulative return"
+    elif comparison_goal == "Lowest volatility":
+        goal_score = strategy_returns[comparison_candidates].std()
+        goal_winner = goal_score.idxmin()
+        goal_criterion = "lowest historical volatility"
+    else:
+        goal_winner = metrics.loc[comparison_candidates, "Sharpe Ratio"].idxmax()
+        goal_criterion = "highest risk-adjusted performance"
+    st.info(f"Based on the backtest, **{goal_winner}** had the {goal_criterion}. Historical performance does not guarantee future results.")
+st.caption(f"Historical analysis through {monthly_returns.index.max():%B %Y}, the latest completed month in the downloaded dataset.")
 latest_date = strategy_weights["Date"].max()
 latest_weights = strategy_weights[strategy_weights["Date"] == latest_date].pivot(index="Ticker", columns="Strategy", values="Weight").fillna(0)
 classification_output = run_classification_models(features) if run_ml_diagnostics else None
@@ -977,6 +1016,8 @@ tabs = st.tabs(
 )
 
 with tabs[0]:
+    st.subheader("Selected assets")
+    st.dataframe(pd.DataFrame([{"Symbol": t, "Full name": lookup_asset_name(t)} for t in valid_tickers]), hide_index=True, use_container_width=True)
     st.subheader("Adjusted Closing Prices")
     st.line_chart(prices)
     st.subheader("Portfolio Cumulative Performance")
@@ -990,7 +1031,7 @@ with tabs[1]:
     stats["Skewness"] = monthly_returns.skew()
     stats["Kurtosis"] = monthly_returns.kurtosis()
     stats["Annualized Return"] = (1 + monthly_returns).prod() ** (12 / len(monthly_returns)) - 1
-    stats["Annualized Volatility"] = monthly_returns.std() * np.sqrt(12)
+    stats["Monthly Volatility"] = monthly_returns.std()
     st.dataframe(stats.style.format("{:.4f}"), use_container_width=True)
 
     st.subheader("Outliers")
