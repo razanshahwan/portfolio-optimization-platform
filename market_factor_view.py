@@ -50,6 +50,33 @@ def render_factor_dashboard(regimes: pd.DataFrame):
         st.warning("Factor comparisons are unavailable for the selected date range.")
         return
 
+    st.subheader("At a glance: four factors × three portfolio methods")
+    comparisons = [
+        ("Technical", "Technical trend (SMA20 / SMA50)", "Uptrend", "Downtrend"),
+        ("Financial", "Financial volatility (VIX)", "High", "Low"),
+        ("Real economy", "Real economy expansion / slowdown", "Expansion", "Slowdown"),
+        ("Political", "Political geopolitical risk", "High", "Low"),
+    ]
+    overview = pd.DataFrame(index=METHODS)
+    for label, factor_name, state_one, state_two in comparisons:
+        section = regimes.loc[regimes["Factor"] == factor_name]
+        by_state = section.pivot(
+            index="Strategy", columns="Condition", values="Mean Monthly Return"
+        ).reindex(METHODS)
+        if state_one in by_state.columns and state_two in by_state.columns:
+            overview[label] = 100 * (by_state[state_one] - by_state[state_two])
+        else:
+            overview[label] = float("nan")
+    st.dataframe(overview.style.format("{:+.2f} pp", na_rep="N/A"), use_container_width=True)
+    st.bar_chart(overview.T, use_container_width=True)
+    st.caption(
+        "Difference in average NEXT-month return, in percentage points (pp): "
+        "Technical = uptrend minus downtrend; Financial = high VIX minus low VIX; "
+        "Real economy = expansion minus slowdown; Political = high GPR minus low GPR. "
+        "Positive values mean higher historical returns in the first named condition. "
+        "This comparison is descriptive, not causal."
+    )
+
     pages = st.tabs([
         GROUP_ICONS[name] + " " + name
         for name in FACTOR_GROUPS
