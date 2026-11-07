@@ -3,6 +3,8 @@ Deployed at the same Streamlit app URL. Underlying calculations: thesis_engine.p
 """
 import io
 import zipfile
+import base64
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -82,7 +84,13 @@ def to_zip(tables):
     return buffer.getvalue()
 
 
-st.image("assets/portfolio_hero.svg", use_container_width=True)
+# Use the exact banner selected by the site owner, stored as WebP/base64 text
+# because repository text APIs cannot commit binary files directly.
+_banner_path = Path(__file__).parent / "assets" / "portfolio_hero_exact.webp.b64"
+st.image(
+    base64.b64decode(_banner_path.read_text(encoding="ascii")),
+    use_container_width=True,
+)
 st.title("Portfolio Optimization Platform")
 arabic_below("منصة تحسين المحافظ الاستثمارية: مقارنة الطرق الثلاث وتحليل المخاطر وظروف السوق.")
 explanation(
